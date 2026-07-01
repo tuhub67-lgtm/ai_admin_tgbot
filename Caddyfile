@@ -1,0 +1,28 @@
+# Домен берётся из переменной DOMAIN (docker-compose.yml).
+# Caddy сам получает и продлевает TLS-сертификат Let's Encrypt.
+{$DOMAIN} {
+	encode gzip
+
+	# Виджет для сайтов клиник — раздаём статикой с длинным кэшем
+	handle_path /static/* {
+		root * /srv/static
+		header Cache-Control "public, max-age=3600"
+		header Access-Control-Allow-Origin "*"
+		file_server
+	}
+
+	# API виджета и вебхуки Novofon — проксируем в приложение
+	handle /api/* {
+		reverse_proxy app:8000
+	}
+	handle /webhook/* {
+		reverse_proxy app:8000
+	}
+	handle /health {
+		reverse_proxy app:8000
+	}
+
+	handle {
+		respond "Подхват: ИИ-администратор клиники" 200
+	}
+}

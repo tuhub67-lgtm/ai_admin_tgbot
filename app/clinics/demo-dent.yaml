@@ -1,0 +1,17 @@
+slug: demo-dent
+name: "Клиника Демо-Дент"
+tg_group_id: -100123456789
+city: "Казань"
+address: "ул. Пример, 1"
+phone_display: "+7 (843) 000-00-00"
+work_hours: "Пн–Сб 9:00–20:00"
+tone: "тёплый, спокойный, на вы"
+lead_cost: 3000              # для расчёта «спасённых ₽» в дайджесте
+widget_color: "#1F9D6B"
+services:
+  - {name: "Консультация", price_from: 0}
+  - {name: "Профгигиена", price_from: 4500}
+  - {name: "Лечение кариеса", price_from: 5900}
+  - {name: "Имплантация", price_from: null}   # null = «цену назовёт врач»
+sms_sender: "DemoDent"
+novofon_number: "+78430000001"

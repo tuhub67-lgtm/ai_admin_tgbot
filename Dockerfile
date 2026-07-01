@@ -1,0 +1,21 @@
+FROM python:3.12-slim AS base
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+WORKDIR /app
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
+
+# Сначала зависимости — слой кэшируется между сборками
+COPY pyproject.toml uv.lock* ./
+RUN uv sync --frozen --no-install-project --no-dev || uv sync --no-install-project --no-dev
+
+COPY app ./app
+COPY static ./static
+COPY scripts ./scripts
+RUN uv sync --frozen --no-dev || uv sync --no-dev
+
+# База данных живёт в volume /app/data (см. docker-compose.yml)
+RUN mkdir -p /app/data /app/certs
+
+EXPOSE 8000
+CMD ["uv", "run", "--no-dev", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
