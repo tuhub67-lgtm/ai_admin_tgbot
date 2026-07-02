@@ -121,12 +121,21 @@ class Database:
         if row:
             return dict(row)
         ts = _ts()
-        cur = await self.conn.execute(
-            "INSERT INTO sessions (clinic_slug, channel, source, external_id,"
-            " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (clinic_slug, channel, source, external_id, ts, ts),
-        )
-        await self.conn.commit()
+        try:
+            cur = await self.conn.execute(
+                "INSERT INTO sessions (clinic_slug, channel, source, external_id,"
+                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (clinic_slug, channel, source, external_id, ts, ts),
+            )
+            await self.conn.commit()
+        except aiosqlite.IntegrityError:
+            # Гонка двух одновременных запросов (две вкладки виджета):
+            # сессию уже вставил параллельный запрос — просто читаем её.
+            row = await self._fetchone(
+                "SELECT * FROM sessions WHERE channel = ? AND external_id = ?",
+                (channel, external_id),
+            )
+            return dict(row)
         row = await self._fetchone("SELECT * FROM sessions WHERE id = ?", (cur.lastrowid,))
         return dict(row)
 

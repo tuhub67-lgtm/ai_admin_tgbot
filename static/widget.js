@@ -19,7 +19,7 @@
   var SID_KEY = 'podkhvat_sid_' + CLINIC;
 
   var accent = script.getAttribute('data-color') || '#1F9D6B';
-  var sid = null, lastId = 0, open = false, pollTimer = null, busy = false;
+  var sid = null, lastId = 0, open = false, pollTimer = null, busy = false, pollBusy = false;
   var clinicName = 'Онлайн-запись';
 
   /* ---------- DOM ---------- */
@@ -91,7 +91,8 @@
   function req(path, opts) {
     opts = opts || {};
     opts.headers = { 'Content-Type': 'application/json' };
-    opts.credentials = 'include';
+    // Без credentials: сессия ходит явным session_id (localStorage), а не
+    // cookie — сторонние cookie браузеры всё равно режут.
     return fetch(API + path, opts).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
@@ -123,13 +124,17 @@
   }
 
   function poll() {
-    if (!sid || !open) return;
+    if (!sid || !open || pollBusy) return; // без параллельных поллов — иначе дубли
+    pollBusy = true;
     req('/poll?session_id=' + encodeURIComponent(sid) + '&after_id=' + lastId, { method: 'GET' })
       .then(function (d) {
-        d.messages.forEach(function (m) { render('assistant', m.content); });
+        d.messages.forEach(function (m) {
+          if (m.id > lastId) render('assistant', m.content);
+        });
         if (d.last_id > lastId) lastId = d.last_id;
       })
-      .catch(function () {});
+      .catch(function () {})
+      .finally(function () { pollBusy = false; });
   }
 
   function send() {

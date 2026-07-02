@@ -117,6 +117,11 @@ curl -X POST "https://bot.ваш-домен.ru/webhook/novofon?secret=..." \
 В группу клиники придёт «📵 Пропущенный звонок…», пациенту — SMS со ссылкой
 `t.me/<бот>?start=<клиника>__sms`. Повторный `pbx_call_id` игнорируется.
 
+> Примечание: если `NOVOFON_API_SECRET` уже задан (шаг 3), этот curl вернёт
+> 403 `bad signature` — настоящие вебхуки Novofon подписаны заголовком
+> `Signature`, а тестовый запрос нет. Прогоните тест до включения секрета
+> (или временно очистите его и `docker compose restart app`).
+
 ## Добавить клинику за 15 минут
 
 1. `uv run python scripts/add_clinic.py --interactive` — отвечаете на вопросы,

@@ -60,18 +60,21 @@ async def start_chat(body: StartRequest, request: Request, response: Response):
         external_id=session_uuid,
         source="site",
     )
-    # Существующая сессия могла быть заведена под другую клинику (uuid общий
-    # на браузер) — тогда начинаем заново под текущую.
+    # uuid из cookie может принадлежать живой сессии ДРУГОЙ клиники (один
+    # браузер, два сайта). Её не трогаем — текущей клинике заводим новый uuid.
     if session["clinic_slug"] != body.clinic:
-        session = await state.db.reset_session(body.clinic, "widget", session_uuid, "site")
+        session_uuid = str(uuid.uuid4())
+        session = await state.db.get_or_create_session(
+            clinic_slug=body.clinic,
+            channel="widget",
+            external_id=session_uuid,
+            source="site",
+        )
 
     messages = await state.db.messages_after(session["id"], 0)
     if not messages:
-        result = await state.engine.start_session(session)
-        messages = [{"id": 0, "role": "assistant", "content": r} for r in result.replies]
-        last_row = await state.db.messages_after(session["id"], 0)
-        if last_row:
-            messages = last_row
+        await state.engine.start_session(session)
+        messages = await state.db.messages_after(session["id"], 0)
 
     response.set_cookie(
         COOKIE_NAME,

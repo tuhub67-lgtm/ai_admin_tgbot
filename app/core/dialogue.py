@@ -6,14 +6,21 @@ State machine держит ЦЕЛЬ шага (какое поле заявки �
 Порядок шагов: GREETING → SERVICE → URGENCY → NAME → PHONE → TIME → CONFIRM.
 
 Детерминированные контуры, которые НЕ доверены LLM:
-- протокол острой боли (триггеры по ключевым словам, лид 🔴 СРОЧНО немедленно);
+- протокол острой боли (триггеры по ключевым словам, лид 🔴 СРОЧНО немедленно;
+  срабатывает даже во время антиспам-паузы и после завершения анкеты);
 - «позовите человека» → лид «просит живого» немедленно;
 - валидация телефона (+7/8 + 10 цифр, мягкий переспрос);
 - антиспам (>N сообщений за окно → пауза) и лимит сообщений на сессию.
+
+Ходы одной сессии сериализуются asyncio.Lock: aiogram обрабатывает апдейты
+конкурентно (handle_as_tasks=True), а два быстрых сообщения без блокировки
+затирали бы друг другу собранные поля.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
 from collections import deque
 from dataclasses import dataclass, field
@@ -36,35 +43,56 @@ FIELD_ORDER = [
     ("preferred_time", "TIME"),
 ]
 
+# Отрицания вырезаем ДО поиска триггеров: «ничего не болит», «не опух»,
+# «болит, но не сильно» — обычные фразы планового пациента.
+_NEG_STRIP_RE = re.compile(
+    r"\b(ничего\s+)?не(т|чего)?\s+"
+    r"(сильн\w*|бол(ит|ят|ел\w*|ьно)?|опух\w*|отек\w*|отёк\w*|распухл\w*|кровоточ\w*)",
+    re.IGNORECASE,
+)
+
 _URGENT_PATTERNS = [
     r"остр(ая|о|ый|ейшая)?\W*бол",
-    r"болит[^.!?]{0,40}(сейчас|прямо|сил[ьн]|ужасно|невыносимо)",
-    r"(сейчас|прямо|сил[ьн]но|ужасно|невыносимо)[^.!?]{0,40}болит",
+    # «сильная (зубная) боль», «адская боль», «ужасно болит»
+    r"(сильн\w*|адск\w*|ужасн\w*|невыносим\w*|очень|дик\w*|жутк\w*)\W+(зубн\w+\W+)?бол(ь\b|ит|ят)",
+    r"бол(ит|ят)[^.!?]{0,40}(сейчас|прямо|сильн\w*|очень|ужасно|невыносимо)",
+    r"(сейчас|прямо|сильн\w*|очень|ужасно|невыносимо)[^.!?]{0,40}бол(ит|ят)",
     r"невыносим",
-    r"кровотеч|кровоточ|(идет|идёт|течет|течёт|хлещет)\W*кровь|кровь\W*(идет|идёт|течет|течёт)",
-    r"травм",
-    r"опух|отек|отёк|распухл",
-    r"(выбил|сломал|раскололся|откололся)\W*зуб",
+    # «кровотечение» — всегда срочно; «кровоточит» — только с интенсивностью,
+    # иначе ловим «кровоточат дёсны при чистке» (самая частая плановая жалоба)
+    r"кровотеч|(идет|идёт|течет|течёт|хлещет)\W*кровь|кровь\W*(идет|идёт|течет|течёт|хлещет)",
+    r"(сильн\w*|не\s+останавл\w*)[^.!?]{0,30}кровоточ|кровоточ[^.!?]{0,30}(сильн\w*|не\s+останавл\w*)",
+    r"\bтравм(?!атолог)",  # «травма», но не «травматолог»/«атравматичное»
+    r"\b(опух|отек|отёк|распухл)",
+    r"(выбил\w*|сломал\w*|раскол\w*|откол\w*)\W*зуб\w*|зуб\W*[^.!?]{0,20}(выбил|сломал|раскол|откол)\w*",
     r"\bфлюс\b",
 ]
 _URGENT_RE = re.compile("|".join(_URGENT_PATTERNS), re.IGNORECASE)
 
 _HUMAN_PATTERNS = [
-    r"позов\w*\W+(человек|живо\w+|администратор|оператор|менеджер)",
+    # до двух слов между глаголом и объектом: «позовите, пожалуйста, человека»
+    r"(позов|переключ|свяж|соедин)\w*\W+(?:\w+\W+){0,2}(человек\w*|живо\w+|администратор\w*|оператор\w*|менеджер\w*)",
+    r"(человека|администратора|оператора)\W+(?:\w+\W+){0,2}позов\w*",
     r"жив(ой|ого|ым|ому)\W+(человек|администратор|оператор)",
-    r"\bоператор\w{0,3}\b",
-    r"хочу\W+(поговорить\W+с\W+)?(человеком|живым|администратором)",
-    r"соедини\w*\W+с\W+(человеком|администратором|оператором)",
+    # голое «оператор» — только если это всё сообщение (упоминание сотового
+    # оператора в разговоре не должно обрывать анкету)
+    r"^\W*оператор\w{0,3}\W*$",
+    r"хочу\W+(поговорить\W+с\W+)?(человеком|живым|администратором|оператором)",
     r"(нужен|дайте)\W+(живой\W+)?(человек|администратор|оператор)",
     r"можно\W+(живого\W+)?(человека|администратора|оператора)\b",
 ]
 _HUMAN_RE = re.compile("|".join(_HUMAN_PATTERNS), re.IGNORECASE)
 
-_VALID_URGENCY = {"planned", "pain", "urgent"}
+# LLM может вернуть только planned|pain; 'urgent' ставит исключительно
+# детерминированный протокол острой боли.
+_LLM_URGENCY = {"planned", "pain"}
+
+# После этого запаса сообщений в закрытой сессии бот замолкает совсем.
+_CLOSED_GRACE = 5
 
 
 def detect_urgent(text: str) -> bool:
-    return bool(_URGENT_RE.search(text))
+    return bool(_URGENT_RE.search(_NEG_STRIP_RE.sub(" ", text)))
 
 
 def detect_human_request(text: str) -> bool:
@@ -119,60 +147,118 @@ class DialogueEngine:
         self._schedules = {
             slug: parse_work_hours(c.work_hours) for slug, c in clinics.items()
         }
+        self._locks: dict[int, asyncio.Lock] = {}
+
+    def _lock(self, session_id: int) -> asyncio.Lock:
+        return self._locks.setdefault(session_id, asyncio.Lock())
+
+    async def _fresh_session(self, session_id: int) -> dict | None:
+        row = await self.db._fetchone(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        )
+        return dict(row) if row else None
 
     # --- Публичный API -----------------------------------------------------
 
     async def start_session(self, session: dict) -> DialogueResult:
         """Приветствие при /start или первом открытии виджета."""
         clinic = self.clinics[session["clinic_slug"]]
-        greeting = prompts.fallback_reply("GREETING", clinic)
-        await self.db.add_message(session["id"], "assistant", greeting)
-        await self.db.update_session(session["id"], state="SERVICE")
-        return DialogueResult(replies=[greeting])
+        async with self._lock(session["id"]):
+            greeting = prompts.fallback_reply("GREETING", clinic)
+            await self.db.add_message(session["id"], "assistant", greeting)
+            await self.db.update_session(session["id"], state="SERVICE")
+            return DialogueResult(replies=[greeting])
 
     async def handle_message(self, session: dict, text: str) -> DialogueResult:
-        clinic = self.clinics[session["clinic_slug"]]
-        session_id = session["id"]
         text = text.strip()
         if not text:
             return DialogueResult()
+        clinic = self.clinics[session["clinic_slug"]]
+        session_id = session["id"]
 
-        # 1. Антиспам — до любых записей в БД и вызовов LLM.
+        # Антиспам — до блокировки, БД и LLM. Сообщение с триггером острой
+        # боли сквозь паузу пропускаем: его нельзя молча выбросить.
         flood_state = self.flood.check(session_id)
-        if flood_state == "mute":
-            return DialogueResult()
-        if flood_state == "warn":
+        if flood_state != "ok" and not detect_urgent(text):
+            if flood_state == "mute":
+                return DialogueResult()
             reply = prompts.fallback_reply("FLOOD", clinic)
             await self.db.add_message(session_id, "assistant", reply)
             return DialogueResult(replies=[reply])
 
+        # Ходы одной сессии — строго по одному: параллельные сообщения
+        # затирали бы друг другу поля и состояние.
+        async with self._lock(session_id):
+            fresh = await self._fresh_session(session_id)
+            if fresh is None:
+                return DialogueResult()
+            return await self._turn(fresh, clinic, text)
+
+    async def request_human_button(self, session: dict) -> DialogueResult:
+        """Кнопка «Позвать человека» (Telegram callback или кнопка виджета)."""
+        clinic = self.clinics[session["clinic_slug"]]
+        async with self._lock(session["id"]):
+            fresh = await self._fresh_session(session["id"])
+            if fresh is None:
+                return DialogueResult()
+            if fresh["state"] in ("DONE", "LIMIT"):
+                # Лид уже передан (или сессия закрыта) — не плодим дубли
+                # от повторных нажатий кнопки.
+                reply = (
+                    "Ваша заявка уже у администратора — он свяжется с вами. "
+                    f"Если вопрос срочный, позвоните: {clinic.phone_display}."
+                )
+                return await self._reply(fresh["id"], [reply])
+            fields = self._session_fields(fresh)
+            return await self._human_protocol(fresh, clinic, fields)
+
+    # --- Один ход диалога (под блокировкой сессии) ---------------------------
+
+    async def _turn(self, session: dict, clinic: Clinic, text: str) -> DialogueResult:
+        session_id = session["id"]
         count = await self.db.bump_message_count(session_id)
         await self.db.add_message(session_id, "user", text)
         fields = self._session_fields(session)
 
-        # 2. Заявка уже передана — не гоняем LLM, отвечаем коротко.
-        if session["state"] == "DONE":
-            reply = (
-                "Ваша заявка уже у администратора — он свяжется с вами. "
-                f"Если вопрос срочный, позвоните: {clinic.phone_display}."
-            )
-            return await self._reply(session_id, [reply])
-
-        # 3. Протокол острой боли — приоритет над всем остальным.
+        # 1. Протокол острой боли — приоритет над всем, включая закрытые
+        #    сессии: «у меня кровь идёт» после оформленной заявки — это
+        #    новый срочный сигнал клинике.
         if detect_urgent(text):
             return await self._urgent_protocol(session, clinic, fields, text)
 
-        # 4. «Позовите человека» — лид немедленно.
+        # 2. Закрытые сессии: отвечаем коротко, после запаса — молчим.
+        if session["state"] in ("DONE", "LIMIT"):
+            if count > self.settings.max_messages_per_session + _CLOSED_GRACE:
+                return DialogueResult()
+            if session["state"] == "LIMIT":
+                reply = prompts.fallback_reply("LIMIT", clinic)
+            else:
+                reply = (
+                    "Ваша заявка уже у администратора — он свяжется с вами. "
+                    f"Если вопрос срочный, позвоните: {clinic.phone_display}."
+                )
+            return await self._reply(session_id, [reply])
+
+        # 3. «Позовите человека» — лид немедленно.
         if detect_human_request(text):
             return await self._human_protocol(session, clinic, fields)
 
-        # 5. Лимит сообщений на сессию.
+        # 4. Лимит сообщений на сессию: честное завершение с телефоном
+        #    клиники. Если телефон уже собран — отдаём клинике частичный лид,
+        #    чтобы она перезвонила сама.
         if count > self.settings.max_messages_per_session:
-            await self.db.update_session(session_id, state="DONE", is_closed=1)
+            await self.db.update_session(session_id, state="LIMIT", is_closed=1)
+            result = DialogueResult()
+            if fields.get("phone"):
+                session = {**session, "state": "LIMIT"}
+                await self.leads.submit(session, fields)
+                result.lead_created = True
             reply = prompts.fallback_reply("LIMIT", clinic)
-            return await self._reply(session_id, [reply])
+            replies = await self._reply(session_id, [reply])
+            result.replies = replies.replies
+            return result
 
-        # 6. Валидация телефона в коде — LLM не доверяем.
+        # 5. Валидация телефона в коде — LLM не доверяем.
         step = session["state"]
         if step == "PHONE":
             phone = normalize_phone(text)
@@ -191,20 +277,19 @@ class DialogueEngine:
             # Не похоже на номер — пациент, вероятно, спросил что-то ещё:
             # пусть ответит LLM, шаг не меняем.
 
-        # 7. Обычный ход: LLM извлекает поля и формулирует ответ.
+        # 6. Обычный ход: LLM извлекает поля и формулирует ответ.
         return await self._llm_turn(session, clinic, fields, step)
-
-    async def request_human_button(self, session: dict) -> DialogueResult:
-        """Кнопка «Позвать человека» (Telegram callback или кнопка виджета)."""
-        clinic = self.clinics[session["clinic_slug"]]
-        fields = self._session_fields(session)
-        return await self._human_protocol(session, clinic, fields)
 
     # --- Протоколы -----------------------------------------------------------
 
     async def _urgent_protocol(
         self, session: dict, clinic: Clinic, fields: dict, text: str
     ) -> DialogueResult:
+        reply = prompts.fallback_reply("URGENT", clinic)
+        # Повторный срочный сигнал в уже оповещённой сессии — только реплика
+        # с телефоном, без дублирующего лида в группу.
+        if fields.get("urgency") == "urgent":
+            return await self._reply(session["id"], [reply])
         # Вдруг в этом же сообщении есть телефон — заберём в лид.
         phone = normalize_phone(text)
         if phone:
@@ -214,7 +299,6 @@ class DialogueEngine:
             fields["service"] = "не уточнена (острая боль)"
         await self.db.update_session(session["id"], state="DONE", fields=fields)
         await self.leads.submit(session, fields, is_urgent=True)
-        reply = prompts.fallback_reply("URGENT", clinic)
         result = await self._reply(session["id"], [reply])
         result.lead_created = True
         return result
@@ -308,7 +392,7 @@ class DialogueEngine:
                     merged["phone"] = phone
                 continue
             if key == "urgency":
-                if value in _VALID_URGENCY:
+                if value in _LLM_URGENCY:
                     merged["urgency"] = value
                 continue
             merged[key] = value
@@ -321,8 +405,6 @@ class DialogueEngine:
         return "CONFIRM"
 
     def _session_fields(self, session: dict) -> dict:
-        import json
-
         raw = session.get("fields_json") or "{}"
         return json.loads(raw) if isinstance(raw, str) else dict(raw)
 

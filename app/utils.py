@@ -31,13 +31,17 @@ _PHONE_RE = re.compile(r"(?:\+?7|8)[\s(-]*(\d{3})[\s)-]*(\d{3})[\s-]*(\d{2})[\s-
 def normalize_phone(text: str) -> str | None:
     """Достаёт и нормализует российский номер: → «+7XXXXXXXXXX» или None.
 
-    Принимает +7 / 8 / 7 и 10 цифр в любом привычном написании.
+    Принимает +7 / 8 / 7 и 10 цифр в любом привычном написании, в том числе
+    внутри длинной фразы («Мой номер 8 917 123-45-67, звоните после 18»).
     """
     digits = re.sub(r"\D", "", text)
     if len(digits) == 11 and digits[0] in "78":
         return "+7" + digits[1:]
     if len(digits) == 10 and digits[0] == "9":
         return "+7" + digits
+    m = _PHONE_RE.search(text)
+    if m:
+        return "+7" + "".join(m.groups())
     return None
 
 

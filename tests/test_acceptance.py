@@ -165,7 +165,7 @@ async def test_07b_session_message_limit(engine, db, session, settings, clinics)
     replies = await talk(engine, db, session, "и что дальше")
     assert any(clinics["demo-dent"].phone_display in r for r in replies)
     fresh = await db._fetchone("SELECT state FROM sessions WHERE id = ?", (session["id"],))
-    assert fresh["state"] == "DONE"
+    assert fresh["state"] == "LIMIT"  # честное состояние: заявки не было
 
 
 # 8. Виджет: сценарий №1 из браузера → канал «виджет», source=site.

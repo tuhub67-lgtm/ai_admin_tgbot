@@ -19,6 +19,8 @@ import os
 import sys
 from pathlib import Path
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import Clinic, Service, load_clinics  # noqa: E402
@@ -69,7 +71,9 @@ def interactive_clinic() -> Clinic:
     return Clinic(
         slug=slug,
         name=name,
-        tg_group_id=int(ask("ID TG-группы клиники (например -1001234567890)")),
+        tg_group_id=int(
+            ask("ID TG-группы клиники (можно вписать позже в YAML)", "-100123456789")
+        ),
         city=ask("Город", "Казань"),
         address=ask("Адрес", "—"),
         phone_display=ask("Телефон для пациентов", "+7 (000) 000-00-00"),
@@ -88,27 +92,16 @@ def write_yaml(clinic: Clinic) -> Path:
     if path.exists():
         print(f"⚠️  {path} уже существует — не перезаписываю.")
         return path
-    lines = [
-        f"slug: {clinic.slug}",
-        f'name: "{clinic.name}"',
-        f"tg_group_id: {clinic.tg_group_id}",
-        f'city: "{clinic.city}"',
-        f'address: "{clinic.address}"',
-        f'phone_display: "{clinic.phone_display}"',
-        f'work_hours: "{clinic.work_hours}"',
-        f'tone: "{clinic.tone}"',
-        f"lead_cost: {clinic.lead_cost}",
-        f'widget_color: "{clinic.widget_color}"',
-        "services:",
-    ]
-    for s in clinic.services:
-        price = s.price_from if s.price_from is not None else "null"
-        lines.append(f'  - {{name: "{s.name}", price_from: {price}}}')
-    if clinic.sms_sender:
-        lines.append(f'sms_sender: "{clinic.sms_sender}"')
-    if clinic.novofon_number:
-        lines.append(f'novofon_number: "{clinic.novofon_number}"')
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # safe_dump, а не ручная сборка строк: кавычки в названии клиники
+    # («Стоматология "Улыбка"») иначе дают битый YAML, который валит
+    # приложение при следующем старте.
+    data = clinic.model_dump()
+    for key in ("sms_sender", "novofon_number"):
+        if data.get(key) is None:
+            data.pop(key, None)
+    path.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
     print(f"✅ Профиль записан: {path}")
     return path
 

@@ -67,11 +67,11 @@ async def lifespan(app: FastAPI):
     engine = DialogueEngine(db, llm, clinics, leads, settings)
     sms = SmsAeroClient(settings.smsaero_email, settings.smsaero_api_key)
 
-    bot_username = "your_bot"
+    bot_username = None
     try:
-        me = await bot.get_me()
-        bot_username = me.username or bot_username
+        bot_username = (await bot.get_me()).username
     except Exception as e:
+        # Не смертельно: missed_calls дозапросит username перед отправкой SMS.
         logger.error("bot.get_me() не удался (нет сети/битый токен?): {}", e)
 
     app.state.settings = settings
@@ -80,6 +80,7 @@ async def lifespan(app: FastAPI):
     app.state.engine = engine
     app.state.notifier = notifier
     app.state.sms = sms
+    app.state.bot = bot
     app.state.bot_username = bot_username
 
     dp = Dispatcher()
@@ -88,13 +89,24 @@ async def lifespan(app: FastAPI):
         dp.start_polling(bot, handle_signals=False, close_bot_session=False)
     )
 
+    def _polling_died(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            # API продолжает работать, но Telegram-канал мёртв — владелец
+            # увидит это в вечернем дайджесте (ошибка ляжет в SQLite).
+            logger.error("aiogram polling упал: {}", exc)
+
+    polling_task.add_done_callback(_polling_died)
+
     digest = DigestService(db, clinics, notifier, settings)
     scheduler = digest.start_scheduler()
 
     logger.info(
         "Подхват запущен: клиник {}, бот @{}, модель {}",
         len(clinics),
-        bot_username,
+        bot_username or "<неизвестен>",
         settings.gigachat_model,
     )
     try:
@@ -120,8 +132,11 @@ def build_api_app(lifespan=None) -> FastAPI:
     app = FastAPI(title="Подхват — ИИ-администратор клиники", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=".*",  # виджет живёт на сайтах клиник
-        allow_credentials=True,
+        # Виджет живёт на сайтах клиник — origin любой, но БЕЗ credentials:
+        # иначе любой сайт мог бы читать диалог пациента по его cookie.
+        # Сессия передаётся явным session_id (uuid из localStorage).
+        allow_origins=["*"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )

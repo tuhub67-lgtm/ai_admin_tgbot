@@ -60,7 +60,7 @@ async def test_digest(engine, db, session, notifier, clinics, settings):
 
     assert len(notifier.sent) == 2  # группа клиники + владелец
     clinic_msg = notifier.sent[0][1]
-    assert "за сегодня: диалогов 1 · заявок 1" in clinic_msg
+    assert "Клиника Демо-Дент, за сегодня: диалогов 1 · заявок 1" in clinic_msg
     assert "спасённой рекламы" in clinic_msg
     assert "3 000" in clinic_msg  # 1 лид × lead_cost
 

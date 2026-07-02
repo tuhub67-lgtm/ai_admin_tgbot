@@ -101,15 +101,18 @@ def create_router(
         await callback.answer()
         if callback.message is None:
             return
+        chat_id = callback.message.chat.id
         session = await db.get_or_create_session(
             clinic_slug=settings.default_clinic_slug,
             channel="telegram",
-            external_id=str(callback.message.chat.id),
+            external_id=str(chat_id),
             source="direct",
         )
         result = await engine.request_human_button(session)
+        # Не callback.message.answer(): для сообщений старше 48 ч Telegram
+        # отдаёт InaccessibleMessage, у которого нет .answer().
         for reply in result.replies:
-            await callback.message.answer(reply)
+            await callback.bot.send_message(chat_id=chat_id, text=reply)
 
     @router.message(F.chat.type == ChatType.PRIVATE, F.text)
     async def dialogue(message: Message) -> None:

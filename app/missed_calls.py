@@ -108,6 +108,24 @@ def build_sms_text(clinic: Clinic, deep_link: str) -> str:
     )
 
 
+async def _resolve_bot_username(state) -> str | None:
+    """Username мог не загрузиться на старте (сеть моргнула) — пробуем ещё раз,
+    чтобы не рассылать SMS с битым deep-link'ом."""
+    username = getattr(state, "bot_username", None)
+    if username:
+        return username
+    bot = getattr(state, "bot", None)
+    if bot is None:
+        return None
+    try:
+        username = (await bot.get_me()).username
+        state.bot_username = username
+        return username
+    except Exception as e:
+        logger.error("bot.get_me() повторно не удался: {}", e)
+        return None
+
+
 @router.get("/webhook/novofon")
 async def novofon_echo(request: Request):
     # Валидация URL кабинетом Novofon: вернуть zd_echo как есть, plain text.
@@ -119,13 +137,22 @@ async def novofon_echo(request: Request):
 async def novofon_webhook(request: Request):
     state = request.app.state
 
+    # Fail closed: эндпоинт рассылает платные SMS — без настроенного секрета
+    # не обрабатываем ничего.
+    if not state.settings.novofon_webhook_secret:
+        logger.error("NOVOFON_WEBHOOK_SECRET не задан — вебхук отклонён")
+        return JSONResponse({"error": "webhook secret is not configured"}, status_code=403)
     secret = request.query_params.get("secret", "")
-    if state.settings.novofon_webhook_secret and not hmac.compare_digest(
-        secret, state.settings.novofon_webhook_secret
-    ):
+    if not hmac.compare_digest(secret, state.settings.novofon_webhook_secret):
         return JSONResponse({"error": "forbidden"}, status_code=403)
 
     form = dict((await request.form()).items())
+    event = form.get("event", "")
+    # Сначала фильтр по событию: для чужих/новых типов событий правило
+    # подписи неизвестно, и отвечать на них 403 нельзя — Novofon может
+    # отключить вебхук за постоянные ошибки.
+    if event != "NOTIFY_END":
+        return {"status": "ignored"}
     if state.settings.novofon_api_secret:
         if not verify_novofon_signature(
             form,
@@ -134,9 +161,6 @@ async def novofon_webhook(request: Request):
         ):
             return JSONResponse({"error": "bad signature"}, status_code=403)
 
-    event = form.get("event", "")
-    if event != "NOTIFY_END":
-        return {"status": "ignored"}
     if form.get("disposition") == "answered":
         return {"status": "answered"}
 
@@ -161,8 +185,9 @@ async def novofon_webhook(request: Request):
     logger.info("Пропущенный звонок в {} от {}", clinic.slug, masked)
 
     sms_ok = False
-    if caller and state.sms.configured:
-        deep_link = f"https://t.me/{state.bot_username}?start={clinic.slug}__sms"
+    bot_username = await _resolve_bot_username(state)
+    if caller and state.sms.configured and bot_username:
+        deep_link = f"https://t.me/{bot_username}?start={clinic.slug}__sms"
         try:
             await state.sms.send_sms(
                 caller, build_sms_text(clinic, deep_link), clinic.sms_sender
@@ -173,6 +198,8 @@ async def novofon_webhook(request: Request):
             logger.error("SMS по пропущенному звонку не отправлена ({}): {}", masked, e)
     elif not state.sms.configured:
         logger.warning("SMS Aero не настроен — SMS по пропущенному звонку не отправлена")
+    elif not bot_username:
+        logger.error("Username бота неизвестен — SMS с битой ссылкой не отправляем")
 
     note = (
         f"📵 Пропущенный звонок от {masked}, "

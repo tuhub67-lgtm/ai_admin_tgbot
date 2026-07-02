@@ -17,6 +17,11 @@ from app.leads import GroupNotifier
 from app.utils import MSK, now_msk
 
 
+def _fmt_rub(value: int) -> str:
+    """12345 → «12 345» (русская типографика, без запятых)."""
+    return f"{value:,}".replace(",", " ")
+
+
 class DigestService:
     def __init__(
         self,
@@ -50,14 +55,14 @@ class DigestService:
             try:
                 stats = await self.db.clinic_day_stats(clinic.slug, today)
                 month_leads = await self.db.clinic_month_leads(clinic.slug, month)
-                saved_rub = month_leads * clinic.lead_cost
+                saved_rub = _fmt_rub(month_leads * clinic.lead_cost)
                 text = (
                     f"📊 {clinic.name}, за сегодня: диалогов {stats['dialogs']}"
                     f" · заявок {stats['leads']}"
                     f" (ночью/вне графика {stats['night']},"
                     f" из пропущенных звонков {stats['from_sms']}).\n"
-                    f"За месяц: {month_leads} заявок ≈ {saved_rub:,} ₽ спасённой рекламы"
-                    f" ({month_leads} × {clinic.lead_cost:,} ₽).".replace(",", " ")
+                    f"За месяц: {month_leads} заявок ≈ {saved_rub} ₽ спасённой рекламы"
+                    f" ({month_leads} × {_fmt_rub(clinic.lead_cost)} ₽)."
                 )
                 await self.notifier.send_group_message(clinic.tg_group_id, text)
                 owner_lines.append(
