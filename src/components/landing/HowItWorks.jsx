@@ -38,8 +38,7 @@ export function HowItWorks() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
               <span
                 aria-hidden="true"
-                className="facet-marker"
-                style={{ display: 'inline-flex', flex: 'none', width: 48, height: 48, alignItems: 'center', justifyContent: 'center', background: 'var(--surface-brand)', color: 'var(--gold-300)', borderRadius: 12 }}
+                style={{ display: 'inline-flex', flex: 'none', width: 48, height: 48, alignItems: 'center', justifyContent: 'center', background: 'var(--surface-brand)', color: 'var(--gold-300)', borderRadius: 'var(--r-card-sm)' }}
               >
                 <Icon name={s.icon} size={24} />
               </span>

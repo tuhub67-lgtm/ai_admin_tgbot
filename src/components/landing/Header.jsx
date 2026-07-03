@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../../design/components/controls/Button.jsx';
+import { BearMark } from '../../design/components/core/BearMark.jsx';
 import { scrollToId } from './Section.jsx';
 import { reachGoal } from '../../lib/analytics.js';
 
@@ -23,7 +24,7 @@ export function Header() {
             aria-label="Подхват AI+ — на главную"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-3)', textDecoration: 'none', color: 'var(--text)', minHeight: 'var(--hit-min)' }}
           >
-            <img src="/favicon.svg" alt="" width="36" height="36" style={{ display: 'block', borderRadius: 8 }} />
+            <BearMark size={34} strokeWidth={3} style={{ color: 'var(--wine-800)' }} />
             <span className="lp-wordmark" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-h4)', fontWeight: 700 }}>
               Подхват AI+
             </span>

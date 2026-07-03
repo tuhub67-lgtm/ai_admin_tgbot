@@ -40,8 +40,7 @@ export function Pricing() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-3)' }}>
               <span style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-h4)', fontWeight: 700 }}>Пилот · 14 дней</span>
               <span
-                className="facet-badge"
-                style={{ fontSize: 'var(--fs-body)', fontWeight: 600, color: 'var(--cta-text)', background: 'var(--gold-400)', padding: '3px 10px' }}
+                style={{ fontSize: 'var(--fs-body)', fontWeight: 600, color: 'var(--cta-text)', background: 'var(--gold-400)', padding: '3px 10px', borderRadius: 'var(--r-badge)' }}
               >
                 в честь запуска
               </span>

@@ -11,10 +11,6 @@ function normalizePhone(raw) {
   return '+' + n;
 }
 
-function escapeHtml(s) {
-  return String(s || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -45,13 +41,14 @@ export default async function handler(req, res) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
 
+  // Отправляем как обычный текст (без parse_mode) — экранирование не требуется.
   const text =
     'Новая заявка с сайта\n\n' +
-    `Имя: ${escapeHtml(name)}\n` +
-    `Клиника: ${escapeHtml(clinic)}\n` +
-    `Телефон: ${escapeHtml(phone)}\n` +
-    (city ? `Город: ${escapeHtml(city)}\n` : '') +
-    `Источник: ${escapeHtml(source)}`;
+    `Имя: ${name}\n` +
+    `Клиника: ${clinic}\n` +
+    `Телефон: ${phone}\n` +
+    (city ? `Город: ${city}\n` : '') +
+    `Источник: ${source}`;
 
   if (!token || !chatId) {
     // Не настроено — не теряем заявку молча: пишем в лог функции, форме отвечаем успехом.

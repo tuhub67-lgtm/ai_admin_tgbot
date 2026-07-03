@@ -7,15 +7,15 @@ import { reachGoal } from '../../lib/analytics.js';
 /* Калькулятор потерь. Формула открыто на экране («Правда требует доказательства»):
    звонки/день × %пропущ × 30 × 0,4 × средний чек. Цель calc_used — при первом движении слайдера. */
 
-function Slider({ label, min, max, step, value, display, onChange }) {
+function Slider({ id, label, min, max, step, value, display, onChange }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 'var(--sp-3)' }}>
-        <label htmlFor={`sl-${label}`} style={{ fontSize: 'var(--fs-body)', fontWeight: 500 }}>{label}</label>
+        <label htmlFor={`sl-${id}`} style={{ fontSize: 'var(--fs-body)', fontWeight: 500 }}>{label}</label>
         <span className="tnum" style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 'var(--fs-h4)', fontFeatureSettings: "'tnum' 1", whiteSpace: 'nowrap' }}>{display}</span>
       </div>
       <input
-        id={`sl-${label}`}
+        id={`sl-${id}`}
         type="range"
         min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
@@ -47,9 +47,9 @@ export function LossCalculator() {
       }}
     >
       <div style={{ display: 'grid', gap: 'var(--sp-6)' }}>
-        <Slider label="Звонков в день" min={10} max={100} step={5} value={calls} display={String(calls)} onChange={bind(setCalls)} />
-        <Slider label="Из них пропущено" min={10} max={40} step={5} value={missed} display={`${missed}%`} onChange={bind(setMissed)} />
-        <Slider label="Средний чек" min={3000} max={15000} step={500} value={check} display={`${fmtRub(check)} ₽`} onChange={bind(setCheck)} />
+        <Slider id="calls" label="Звонков в день" min={10} max={100} step={5} value={calls} display={String(calls)} onChange={bind(setCalls)} />
+        <Slider id="missed" label="Из них пропущено" min={10} max={40} step={5} value={missed} display={`${missed}%`} onChange={bind(setMissed)} />
+        <Slider id="check" label="Средний чек" min={3000} max={15000} step={500} value={check} display={`${fmtRub(check)} ₽`} onChange={bind(setCheck)} />
       </div>
 
       <div

@@ -6,8 +6,8 @@ import { TG_USERNAME, TG_URL, isPlaceholder } from '../../config.js';
 
 const items = [
   { icon: 'server', title: 'Данные — в России', text: 'Серверы в РФ. База пациентов и записи разговоров не покидают страну — по 152-ФЗ.' },
-  { icon: 'lock', title: 'Карточки без диагнозов', text: 'В карточках и логах — только повод обращения и контакты. Медицинские детали не храним.' },
-  { icon: 'shield', title: 'По договору', text: 'Работаем по договору, с согласиями на обработку ПДн. Шаблоны документов дадим при подключении.' },
+  { icon: 'lock', title: 'Карточки без диагнозов', text: 'В карточках и в записях диалогов — только повод обращения и контакты. Медицинские детали не храним.' },
+  { icon: 'shield', title: 'По договору', text: 'Работаем по договору и с вашего согласия на обработку данных. Шаблоны документов дадим при подключении.' },
   { icon: 'dialog', title: 'Российская модель GigaChat', text: 'Диалоги ведёт российская модель GigaChat (Сбер). Никаких зарубежных облаков.' },
 ];
 
@@ -25,8 +25,7 @@ export function Trust() {
           <div key={it.title} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-card)', padding: 'var(--sp-6)', boxShadow: 'var(--shadow-card)' }}>
             <span
               aria-hidden="true"
-              className="facet-marker"
-              style={{ display: 'inline-flex', width: 48, height: 48, alignItems: 'center', justifyContent: 'center', background: 'var(--surface-brand)', color: 'var(--gold-300)', borderRadius: 12 }}
+              style={{ display: 'inline-flex', width: 48, height: 48, alignItems: 'center', justifyContent: 'center', background: 'var(--surface-brand)', color: 'var(--gold-300)', borderRadius: 'var(--r-card-sm)' }}
             >
               <Icon name={it.icon} size={24} />
             </span>

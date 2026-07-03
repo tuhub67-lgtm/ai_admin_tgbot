@@ -34,6 +34,8 @@ export function LeadForm() {
 
   const onSubmit = async (ev) => {
     ev.preventDefault();
+    // Защита от двойной отправки (повторный Enter, пока запрос в полёте).
+    if (status === 'sending') return;
     // Honeypot: бот заполнил скрытое поле — тихо «успех», ничего не отправляем.
     if (f.hp) { setStatus('success'); return; }
     if (!validate()) return;
@@ -75,6 +77,8 @@ export function LeadForm() {
       <Section id="lead" bg="var(--surface-subtle)">
         <div
           className="facet-card"
+          role="status"
+          aria-live="polite"
           style={{ maxWidth: 620, margin: '0 auto', background: 'var(--surface)', boxShadow: 'var(--shadow-raised)', borderRadius: 'var(--r-card)', padding: 'var(--sp-8)', textAlign: 'center' }}
         >
           <span style={{ display: 'inline-flex', width: 56, height: 56, alignItems: 'center', justifyContent: 'center', background: 'var(--success-tint)', borderRadius: 'var(--r-pill)' }}>
@@ -112,7 +116,7 @@ export function LeadForm() {
           </div>
 
           <ConsentCheckbox checked={f.consent} onChange={set('consent')} error={errors.consent}>
-            Согласен на обработку персональных данных согласно{' '}
+            Даю согласие на обработку персональных данных согласно{' '}
             <a href="/privacy" target="_blank" rel="noopener" style={{ color: 'var(--text-gold)', textDecoration: 'underline' }}>
               политике конфиденциальности
             </a>.

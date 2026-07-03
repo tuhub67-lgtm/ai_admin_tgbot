@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Seo } from '../components/common/Seo.jsx';
+import { BearMark } from '../design/components/core/BearMark.jsx';
 import { SITE_DOMAIN } from '../config.js';
 
 /* Политика обработки ПДн (152-ФЗ). Реквизиты оператора — плейсхолдеры {…}, владелец заполнит.
@@ -28,7 +29,7 @@ export default function Privacy() {
         <div className="lp-container">
           <div className="lp-header__row">
             <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-3)', textDecoration: 'none', color: 'var(--text)', minHeight: 'var(--hit-min)' }}>
-              <img src="/favicon.svg" alt="" width="36" height="36" style={{ display: 'block', borderRadius: 8 }} />
+              <BearMark size={34} strokeWidth={3} style={{ color: 'var(--wine-800)' }} />
               <span style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--fs-h4)', fontWeight: 700 }}>Подхват AI+</span>
             </Link>
             <Link to="/" className="lp-tap" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: 'var(--fs-body)' }}>← На главную</Link>

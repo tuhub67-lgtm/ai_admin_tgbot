@@ -32,7 +32,7 @@ export function ConsentCheckbox({ checked, onChange, error, children, name = 'co
             aria-hidden="true"
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 24, height: 24, borderRadius: 6,
+              width: 24, height: 24, borderRadius: 'var(--r-badge)',
               border: `1.5px solid ${error && !checked ? 'var(--urgent)' : checked ? 'var(--control-on)' : 'var(--border-strong)'}`,
               background: checked ? 'var(--control-on)' : 'var(--surface)',
               transition: 'background var(--motion-fast), border-color var(--motion-fast)',

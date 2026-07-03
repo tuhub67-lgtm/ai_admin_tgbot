@@ -73,8 +73,7 @@ export function Hero() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-3)' }}>
               <span
                 aria-hidden="true"
-                className="facet-badge"
-                style={{ display: 'inline-flex', flex: 'none', width: 40, height: 40, alignItems: 'center', justifyContent: 'center', background: 'var(--surface-brand)', color: 'var(--gold-300)', borderRadius: 10 }}
+                style={{ display: 'inline-flex', flex: 'none', width: 40, height: 40, alignItems: 'center', justifyContent: 'center', background: 'var(--surface-brand)', color: 'var(--gold-300)', borderRadius: 'var(--r-badge)' }}
               >
                 <Icon name="max" size={22} />
               </span>
