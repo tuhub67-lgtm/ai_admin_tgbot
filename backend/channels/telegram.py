@@ -21,9 +21,9 @@ from aiogram.types import (
 )
 from loguru import logger
 
-from app.config import VALID_SOURCES, Clinic, Settings
-from app.core.dialogue import DialogueEngine
-from app.db import Database
+from backend.config import VALID_SOURCES, Clinic, Settings
+from backend.core.dialogue import DialogueEngine
+from backend.db import Database
 
 CALL_HUMAN_CB = "call_human"
 

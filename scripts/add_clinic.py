@@ -23,9 +23,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.config import Clinic, Service, load_clinics  # noqa: E402
+from backend.config import Clinic, Service, load_clinics  # noqa: E402
 
-CLINICS_DIR = Path(__file__).resolve().parent.parent / "app" / "clinics"
+CLINICS_DIR = Path(__file__).resolve().parent.parent / "backend" / "clinics"
 
 DEMO = Clinic(
     slug="demo-dent",

@@ -27,9 +27,9 @@ from gigachat.models import (
 )
 from loguru import logger
 
-from app.config import Settings
-from app.core.llm_base import LLMResult
-from app.db import Database
+from backend.config import Settings
+from backend.core.llm_base import LLMResult
+from backend.db import Database
 
 RETRIES = 2  # повторов после первой попытки
 TIMEOUT_SECONDS = 15.0

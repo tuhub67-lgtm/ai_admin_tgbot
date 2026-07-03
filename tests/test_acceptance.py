@@ -5,8 +5,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.core import prompts
-from app.main import build_api_app
+from backend.core import prompts
+from backend.main import build_api_app
 from tests.conftest import talk
 
 pytestmark = pytest.mark.usefixtures("day_clock")

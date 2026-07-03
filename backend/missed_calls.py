@@ -24,8 +24,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 
-from app.config import Clinic, clinic_by_novofon_number
-from app.utils import mask_phone, normalize_phone
+from backend.config import Clinic, clinic_by_novofon_number
+from backend.utils import mask_phone, normalize_phone
 
 router = APIRouter(tags=["novofon"])
 

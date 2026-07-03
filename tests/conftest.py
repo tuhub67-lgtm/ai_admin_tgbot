@@ -10,14 +10,14 @@ from datetime import datetime
 
 import pytest
 
-from app import utils
-from app.config import Settings, load_clinics
-from app.core import prompts
-from app.core.dialogue import DialogueEngine
-from app.core.llm_base import LLMResult
-from app.db import Database
-from app.leads import LeadService
-from app.utils import MSK
+from backend import utils
+from backend.config import Settings, load_clinics
+from backend.core import prompts
+from backend.core.dialogue import DialogueEngine
+from backend.core.llm_base import LLMResult
+from backend.db import Database
+from backend.leads import LeadService
+from backend.utils import MSK
 
 # Вторник, рабочий день клиники demo-dent (Пн–Сб 9:00–20:00)
 DAY = datetime(2026, 6, 30, 12, 0, tzinfo=MSK)

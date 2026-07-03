@@ -27,12 +27,12 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
-from app.config import Clinic, Settings, parse_work_hours
-from app.core import prompts
-from app.core.llm_base import BaseLLM
-from app.db import Database
-from app.leads import LeadService
-from app.utils import looks_like_phone_attempt, normalize_phone, now_msk
+from backend.config import Clinic, Settings, parse_work_hours
+from backend.core import prompts
+from backend.core.llm_base import BaseLLM
+from backend.db import Database
+from backend.leads import LeadService
+from backend.utils import looks_like_phone_attempt, normalize_phone, now_msk
 
 # Поля заявки в порядке заполнения; шаг = первое незаполненное поле.
 FIELD_ORDER = [

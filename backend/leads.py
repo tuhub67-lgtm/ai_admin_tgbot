@@ -10,9 +10,9 @@ from typing import Protocol
 
 from loguru import logger
 
-from app.config import Clinic
-from app.db import Database
-from app.utils import mask_phone, now_msk
+from backend.config import Clinic
+from backend.db import Database
+from backend.utils import mask_phone, now_msk
 
 URGENCY_LABELS = {
     "planned": "планово",

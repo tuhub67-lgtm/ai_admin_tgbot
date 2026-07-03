@@ -9,7 +9,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
 COPY pyproject.toml uv.lock* ./
 RUN uv sync --frozen --no-install-project --no-dev || uv sync --no-install-project --no-dev
 
-COPY app ./app
+COPY backend ./backend
 COPY static ./static
 COPY scripts ./scripts
 RUN uv sync --frozen --no-dev || uv sync --no-dev
@@ -18,4 +18,4 @@ RUN uv sync --frozen --no-dev || uv sync --no-dev
 RUN mkdir -p /app/data /app/certs
 
 EXPOSE 8000
-CMD ["uv", "run", "--no-dev", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "--no-dev", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

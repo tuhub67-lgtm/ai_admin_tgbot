@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.channels.telegram import parse_start_payload
-from app.digest import DigestService
-from app.utils import mask_phone
+from backend.channels.telegram import parse_start_payload
+from backend.digest import DigestService
+from backend.utils import mask_phone
 from tests.conftest import talk
 
 pytestmark = pytest.mark.usefixtures("day_clock")
@@ -70,7 +70,7 @@ async def test_digest(engine, db, session, notifier, clinics, settings):
 
 
 async def test_stats_by_source(engine, db, notifier, clinics):
-    from app.channels.telegram import _build_stats
+    from backend.channels.telegram import _build_stats
 
     s1 = await db.get_or_create_session("demo-dent", "telegram", "1", "landing")
     s2 = await db.get_or_create_session("demo-dent", "telegram", "2", "sms")

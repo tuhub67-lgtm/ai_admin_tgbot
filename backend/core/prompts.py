@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from app.config import Clinic
+from backend.config import Clinic
 
 ANNA_SYSTEM_PROMPT = """Ты — Анна, онлайн-администратор клиники «{name}» ({city}, {address}, график: {work_hours}).
 Единственная цель — записать пациента: услуга, срочность, имя, телефон, удобное время.

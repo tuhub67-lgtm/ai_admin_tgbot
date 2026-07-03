@@ -7,10 +7,10 @@ import asyncio
 import httpx
 import pytest
 
-from app.config import Clinic, Service, Settings
-from app.core.dialogue import detect_human_request, detect_urgent
-from app.main import build_api_app
-from app.utils import normalize_phone
+from backend.config import Clinic, Service, Settings
+from backend.core.dialogue import detect_human_request, detect_urgent
+from backend.main import build_api_app
+from backend.utils import normalize_phone
 from tests.conftest import talk
 
 pytestmark = pytest.mark.usefixtures("day_clock")
@@ -312,7 +312,7 @@ def test_add_clinic_yaml_escaping(tmp_path, monkeypatch):
         services=[Service(name='Чистка "AirFlow"', price_from=3000)],
     )
     path = ac.write_yaml(clinic)
-    from app.config import load_clinics
+    from backend.config import load_clinics
 
     loaded = load_clinics(tmp_path)
     assert loaded["ulybka"].name == 'Стоматология "Улыбка"'

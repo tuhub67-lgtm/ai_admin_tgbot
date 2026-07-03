@@ -12,7 +12,7 @@ from typing import Any
 
 import aiosqlite
 
-from app.utils import now_msk
+from backend.utils import now_msk
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (

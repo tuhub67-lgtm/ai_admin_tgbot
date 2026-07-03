@@ -20,16 +20,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from app.channels.telegram import TelegramNotifier, create_router
-from app.channels.widget_api import router as widget_router
-from app.config import load_clinics, load_settings
-from app.core.dialogue import DialogueEngine
-from app.core.llm import GigaChatLLM
-from app.db import Database
-from app.digest import DigestService
-from app.leads import LeadService
-from app.missed_calls import SmsAeroClient
-from app.missed_calls import router as novofon_router
+from backend.channels.telegram import TelegramNotifier, create_router
+from backend.channels.widget_api import router as widget_router
+from backend.config import load_clinics, load_settings
+from backend.core.dialogue import DialogueEngine
+from backend.core.llm import GigaChatLLM
+from backend.db import Database
+from backend.digest import DigestService
+from backend.leads import LeadService
+from backend.missed_calls import SmsAeroClient
+from backend.missed_calls import router as novofon_router
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 

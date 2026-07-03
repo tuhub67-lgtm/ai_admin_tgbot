@@ -11,10 +11,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 
-from app.config import Clinic, Settings
-from app.db import Database
-from app.leads import GroupNotifier
-from app.utils import MSK, now_msk
+from backend.config import Clinic, Settings
+from backend.db import Database
+from backend.leads import GroupNotifier
+from backend.utils import MSK, now_msk
 
 
 def _fmt_rub(value: int) -> str:
