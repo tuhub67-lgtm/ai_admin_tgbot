@@ -10,8 +10,13 @@ lead_cost: 3000              # для расчёта «спасённых ₽» 
 widget_color: "#1F9D6B"
 services:
   - {name: "Консультация", price_from: 0}
-  - {name: "Профгигиена", price_from: 4500}
-  - {name: "Лечение кариеса", price_from: 5900}
-  - {name: "Имплантация", price_from: null}   # null = «цену назовёт врач»
+  - {name: "Профгигиена", price_from: 4500, price_to: 6500}
+  - {name: "Лечение кариеса", price_from: 5900, price_to: 12000}
+  - {name: "Имплантация", price_from: 25000, price_to: 45000}
 sms_sender: "DemoDent"
 novofon_number: "+78430000001"
+# --- Этап B ---
+slot_step_min: 30
+avg_check: 6000
+clinic_token: "demo-clinic-token"   # токен в URL вебхука телефонии
+channels: ["telegram", "sms"]       # MAX выключен (адаптер-заглушка)

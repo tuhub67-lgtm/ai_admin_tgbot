@@ -51,22 +51,21 @@ async def test_01_full_flow(engine, db, session, notifier, clinics):
     assert len(dialog) >= 10
 
 
-# 2. «Сколько стоит имплант?» → «цену назовёт врач», без выдуманных цифр.
+# 2. «Сколько стоит имплант?» → диапазон из прайса + слот на консультацию
+#    (Этап B, ТЗ приложения #5: цены — только диапазоны из прайс-конфига,
+#    точную стоимость называет врач на осмотре).
 async def test_02_implant_price(engine, db, session, notifier, clinics):
     clinic = clinics["demo-dent"]
-    # Железное правило и честная цена «Имплантации» зашиты в системный промпт
-    services_text = clinic.services_list_text()
-    assert "Имплантация — точную стоимость определит врач после осмотра" in services_text
-    assert "Профгигиена — от 4500 ₽" in services_text
     system = prompts.build_system_prompt(clinic, "SERVICE")
-    assert "только price_from со словом «от»" in system
+    assert "только диапазоны из прайса" in system
 
     await engine.start_session(session)
     replies = await talk(engine, db, session, "Сколько стоит имплант?")
-    # Возврат к записи (вопрос о срочности), никаких выдуманных цифр
-    assert replies
-    assert not any("₽" in r or any(ch.isdigit() for ch in r) for r in replies)
-    assert notifier.sent == []  # заявки ещё нет
+    text = " ".join(replies).replace(" ", "").replace(" ", "")
+    # Диапазон из прайса (25000–45000) + честное «назовёт врач», без выдуманной точной цены
+    assert "25000" in text and "45000" in text
+    assert "врач" in " ".join(replies)
+    assert notifier.sent == []  # заявки/лида ещё нет
 
 
 # 3. Острая боль → протокол, 🔴 СРОЧНО немедленно.

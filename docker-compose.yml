@@ -2,12 +2,21 @@ services:
   app:
     build: .
     restart: unless-stopped
-    env_file: .env
+    env_file: .env                # все ключи из .env (BOT_TOKEN, GIGACHAT_*, NOVOFON_* и т.д.)
     environment:
       DB_PATH: /app/data/podkhvat.db
+      # --- Этап B: явный проброс секретов кабинета и каналов ---
+      # (значения берутся из .env; здесь фиксируем контракт и дефолты)
+      JWT_SECRET: ${JWT_SECRET:-}                 # подпись magic-link/JWT (генерит setup.sh)
+      SMSRU_API_ID: ${SMSRU_API_ID:-}             # SMS.ru — провайдер Этапа B
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}           # канал MAX (опционально/заглушка)
+      SHTAB_BOT_TOKEN: ${SHTAB_BOT_TOKEN:-${BOT_TOKEN:-}}  # если пуст — используется BOT_TOKEN
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}       # публичный URL бэкенда (вебхуки, виджет)
+      CABINET_ORIGIN: ${CABINET_ORIGIN:-https://podhvatplus.ru}  # CORS-origin кабинета на Vercel
     volumes:
       - ./data:/app/data          # SQLite остаётся на хосте (бэкапить эту папку)
       - ./certs:/app/certs:ro     # сертификат НУЦ Минцифры для GigaChat (вариант А)
+      - ./backups:/backups        # ежедневные дампы БД (backup.sh)
     expose:
       - "8000"
 

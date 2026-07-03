@@ -287,3 +287,73 @@ tests/               # pytest по чек-листу приёмки
 
 Админ-панель, CRM-интеграции (YCLIENTS/IDENT/amoCRM — после 5 клиентов),
 онлайн-оплата, голос, мультиязычность, webhook-режим aiogram, Kubernetes.
+
+## Деплой backend (Этап B)
+
+Backend разворачивается на чистом Ubuntu VPS в РФ через docker compose + Caddy
+(TLS Let's Encrypt). Кабинет владельца (SPA) — на Vercel; сюда он ходит по API.
+
+### Что нужно до начала
+
+| Ключ | Где взять | Обязателен |
+|---|---|---|
+| `BOT_TOKEN` | @BotFather | да |
+| `GIGACHAT_CREDENTIALS` | [developers.sber.ru](https://developers.sber.ru) → GigaChat API | да |
+| `NOVOFON_WEBHOOK_SECRET` | придумать; вписать в URL вебхука Novofon | да |
+| `SMSRU_API_ID` | [sms.ru](https://sms.ru) → API (провайдер SMS Этапа B) | да |
+| `JWT_SECRET` | генерируется автоматически (`setup.sh`, `openssl rand -hex 32`) | авто |
+| `MAX_BOT_TOKEN` | канал MAX | опционально (заглушка) |
+| `SHTAB_BOT_TOKEN` | токен бота «Штаб» | опционально (пуст → берётся `BOT_TOKEN`) |
+| `DOMAIN` / `PUBLIC_BASE_URL` | ваш домен, A-запись на IP VPS | да |
+| `CABINET_ORIGIN` | домен кабинета на Vercel (`https://podhvatplus.ru`) | да (CORS) |
+
+### Установка одним скриптом
+
+```bash
+git clone <ваш-репозиторий> podkhvat && cd podkhvat
+cp .env.example .env && nano .env      # вписать ключи, DOMAIN, PUBLIC_BASE_URL, CABINET_ORIGIN
+bash setup.sh                          # рекомендуется от root (sudo -i)
+```
+
+`setup.sh` проходит 8 шагов:
+
+1. Ставит Docker + плагин compose (`get.docker.com`), а также `git/curl/sqlite3/openssl/cron`.
+2. Проверяет `.env` (если нет — создаёт из `.env.example` и останавливается с инструкцией).
+3. Считывает `DOMAIN` из `.env` (предупреждает, если это пример `bot.example.ru`).
+4. Генерирует `JWT_SECRET`, если он пуст (`openssl rand -hex 32` → дописывает в `.env`).
+5. Скачивает корневой сертификат НУЦ Минцифры в `certs/` (нужен GigaChat, см. выше).
+6. `docker compose up -d --build`.
+7. Ждёт и дёргает healthcheck `https://$DOMAIN/health` (ретраи ~2 мин).
+8. Ставит ежедневный бэкап в cron на 03:00.
+
+Скрипт идемпотентен — повторный запуск не ломает уже настроенное.
+
+### Healthcheck и мониторинг
+
+`GET /health` отвечает `200 {"status":"ok"}`, когда приложение и БД подняты —
+им же проверяет себя `setup.sh`. Для мониторинга повесьте uptime-пинг (UptimeRobot,
+Better Uptime или свой cron с `curl`) на `https://<домен>/health` с интервалом 1–5 мин
+и оповещением в Telegram — падение видно сразу.
+
+### Бэкапы
+
+`backup.sh` снимает согласованную копию SQLite (`./data/podkhvat.db`) в `./backups/`
+(в контейнере — `/backups`) с именем `podkhvat-YYYY-MM-DD.db` и хранит последние 14.
+`setup.sh` ставит его в cron на 03:00:
+
+```cron
+0 3 * * * /путь/к/podkhvat/backup.sh >> /путь/к/podkhvat/backups/backup.log 2>&1
+```
+
+Снять копию вручную: `bash backup.sh`. **Раз в неделю забирайте копию с VPS**
+(на свой компьютер/облако), например: `scp root@<vps>:podkhvat/backups/podkhvat-*.db ./`
+— локальный бэкап спасёт при потере сервера.
+
+### Как кабинет на Vercel общается с backend
+
+- SPA живёт на Vercel (`podhvatplus.ru`), backend — на VPS (`DOMAIN`). Каддифайл
+  раздаёт только `/api/*`, `/webhook/*`, `/health` и статику виджета — SPA он не отдаёт.
+- Кабинет ходит на `https://<домен>/api/*`. Кросс-доменные запросы разрешает CORS
+  по `CABINET_ORIGIN` (домен Vercel) — задайте его в `.env`.
+- Авторизация — JWT: кабинет получает токен по magic-link и шлёт его в заголовке
+  `Authorization: Bearer <token>`; подпись проверяется секретом `JWT_SECRET`.

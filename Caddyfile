@@ -1,9 +1,11 @@
 # Домен берётся из переменной DOMAIN (docker-compose.yml).
-# Caddy сам получает и продлевает TLS-сертификат Let's Encrypt.
+# Caddy сам получает и продлевает TLS-сертификат Let's Encrypt (HTTP→HTTPS автоматически).
+# Кабинет владельца (SPA) хостится на Vercel — здесь его НЕ раздаём: только API,
+# вебхуки, healthcheck и статика виджета.
 {$DOMAIN} {
 	encode gzip
 
-	# Виджет для сайтов клиник — раздаём статикой с длинным кэшем
+	# Виджет для сайтов клиник — раздаём статикой с кэшем и открытым CORS
 	handle_path /static/* {
 		root * /srv/static
 		header Cache-Control "public, max-age=3600"
@@ -11,17 +13,22 @@
 		file_server
 	}
 
-	# API виджета и вебхуки Novofon — проксируем в приложение
+	# API кабинета/виджета — проксируем в приложение (CORS кабинета — на стороне backend)
 	handle /api/* {
 		reverse_proxy app:8000
 	}
+
+	# Вебхуки Novofon (пропущенные звонки)
 	handle /webhook/* {
 		reverse_proxy app:8000
 	}
+
+	# Healthcheck для мониторинга (uptime-пинг)
 	handle /health {
 		reverse_proxy app:8000
 	}
 
+	# Всё остальное — заглушка (кабинет живёт на Vercel)
 	handle {
 		respond "Подхват: ИИ-администратор клиники" 200
 	}

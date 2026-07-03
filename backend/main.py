@@ -20,6 +20,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+from backend.api import router as api_router
+from backend.channels.channel_max import MaxAdapter
+from backend.channels.channel_sms import SmsAdapter, SmsRuClient
+from backend.channels.channel_telegram import TelegramAdapter
+from backend.channels.dispatcher import Dispatcher as ChannelDispatcher
 from backend.channels.telegram import TelegramNotifier, create_router
 from backend.channels.widget_api import router as widget_router
 from backend.config import load_clinics, load_settings
@@ -30,6 +35,9 @@ from backend.digest import DigestService
 from backend.leads import LeadService
 from backend.missed_calls import SmsAeroClient
 from backend.missed_calls import router as novofon_router
+from backend.ratelimit import RateLimiter
+from backend.report_weekly import WeeklyReport
+from backend.webhook_telephony import router as telephony_router
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -65,7 +73,21 @@ async def lifespan(app: FastAPI):
     notifier = TelegramNotifier(bot)
     leads = LeadService(db, clinics, notifier)
     engine = DialogueEngine(db, llm, clinics, leads, settings)
-    sms = SmsAeroClient(settings.smsaero_email, settings.smsaero_api_key)
+    sms = SmsAeroClient(settings.smsaero_email, settings.smsaero_api_key)  # виджет-продукт
+
+    # Этап B: каналы + каскадный диспетчер + лимиты
+    ratelimit = RateLimiter(
+        telephony_per_min=settings.telephony_per_min,
+        sms_daily_per_clinic=settings.sms_daily_limit,
+    )
+    sms_adapter = SmsAdapter(SmsRuClient(settings.smsru_api_id))
+    max_adapter = MaxAdapter(settings.max_bot_token)
+    tg_adapter = TelegramAdapter(bot)
+    adapters = {"sms": sms_adapter, "max": max_adapter, "telegram": tg_adapter}
+    dispatcher = ChannelDispatcher(
+        db, max_adapter=max_adapter, sms_adapter=sms_adapter,
+        telegram_adapter=tg_adapter, ratelimit=ratelimit,
+    )
 
     bot_username = None
     try:
@@ -82,6 +104,9 @@ async def lifespan(app: FastAPI):
     app.state.sms = sms
     app.state.bot = bot
     app.state.bot_username = bot_username
+    app.state.adapters = adapters
+    app.state.dispatcher = dispatcher
+    app.state.ratelimit = ratelimit
 
     dp = Dispatcher()
     dp.include_router(create_router(engine, db, clinics, settings))
@@ -102,6 +127,8 @@ async def lifespan(app: FastAPI):
 
     digest = DigestService(db, clinics, notifier, settings)
     scheduler = digest.start_scheduler()
+    weekly = WeeklyReport(db, clinics, notifier, settings)
+    weekly_scheduler = weekly.start_scheduler()
 
     logger.info(
         "Подхват запущен: клиник {}, бот @{}, модель {}",
@@ -113,6 +140,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         scheduler.shutdown(wait=False)
+        weekly_scheduler.shutdown(wait=False)
         try:
             await dp.stop_polling()
         except Exception:
@@ -142,10 +170,14 @@ def build_api_app(lifespan=None) -> FastAPI:
     )
     app.include_router(widget_router)
     app.include_router(novofon_router)
+    app.include_router(telephony_router)   # Этап B: вебхук телефонии с clinic_token
+    app.include_router(api_router)          # Этап B: REST кабинета
 
     @app.get("/health")
     async def health():
-        return {"status": "ok"}
+        db = getattr(app.state, "db", None)
+        db_ok = db is not None and db._conn is not None
+        return {"status": "ok" if db_ok else "degraded", "db": db_ok, "version": "0.1.0"}
 
     if STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

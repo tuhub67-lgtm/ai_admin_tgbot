@@ -31,7 +31,9 @@ from backend.config import Clinic, Settings, parse_work_hours
 from backend.core import prompts
 from backend.core.llm_base import BaseLLM
 from backend.db import Database
+from backend import qualifier
 from backend.leads import LeadService
+from backend.scheduler_lite import next_slots_text
 from backend.utils import looks_like_phone_attempt, normalize_phone, now_msk
 
 # Поля заявки в порядке заполнения; шаг = первое незаполненное поле.
@@ -97,6 +99,48 @@ def detect_urgent(text: str) -> bool:
 
 def detect_human_request(text: str) -> bool:
     return bool(_HUMAN_RE.search(text))
+
+
+# --- Этап B: детекторы цены / нецелевого / скидки ------------------------------
+
+_PRICE_RE = re.compile(
+    r"скольк\w*\s+стоит|сто(и|ю)т\b|\bцен[аыуе]\b|по\s*ч[её]м|прайс|стоимост",
+    re.IGNORECASE,
+)
+_NONTARGET_RE = re.compile(
+    r"пицц|такси|доставк\w*\s*(еды|воды|пицц)|\bкредит\b|ваканси|"
+    r"устро\w*\s+на\s+работ|резюме|рекламн\w*\s+предложен|сотруднич\w*|курьер|"
+    r"\bремонт\s+(квартир|телефон)",
+    re.IGNORECASE,
+)
+_DISCOUNT_RE = re.compile(
+    r"скидк|подешевл|дешевл|бесплатн\w*\s+(сделай|полечи|постав)|"
+    r"особ\w*\s+услови|\bакци\w*|промокод|бонус\w*\s+дад",
+    re.IGNORECASE,
+)
+
+
+_AGGRO_RE = re.compile(
+    r"\b(идиот\w*|дебил\w*|тупо\w*|урод\w*|придур\w*|ненавиж\w*|заткн\w*|"
+    r"бесит|достал\w*|ху[ий]\w*|бл[яэ]\w*|су[кч]\w*|пош[её]л\s+ты|мраз\w*)",
+    re.IGNORECASE,
+)
+
+
+def detect_aggression(text: str) -> bool:
+    return bool(_AGGRO_RE.search(text))
+
+
+def detect_price_question(text: str) -> bool:
+    return bool(_PRICE_RE.search(text))
+
+
+def detect_nontarget(text: str) -> bool:
+    return bool(_NONTARGET_RE.search(text))
+
+
+def detect_discount(text: str) -> bool:
+    return bool(_DISCOUNT_RE.search(text))
 
 
 @dataclass
@@ -243,6 +287,24 @@ class DialogueEngine:
         if detect_human_request(text):
             return await self._human_protocol(session, clinic, fields)
 
+        # 3a. Агрессия/мат → вежливая эскалация человеку, пометка в карточке.
+        if detect_aggression(text):
+            return await self._human_protocol(session, clinic, fields)
+
+        # 3b. Нецелевой запрос (пицца/кредит/вакансия…) — вежливый отказ,
+        #     статус «нецелевой». Только пока не поняли услугу.
+        if detect_nontarget(text) and not fields.get("service"):
+            return await self._nontarget_protocol(session, clinic, fields)
+
+        # 3c. Вопрос цены — диапазон из прайса + слот на консультацию (не обрывая анкету).
+        if detect_price_question(text):
+            return await self._price_protocol(session, clinic, fields, text)
+
+        # 3d. Требование скидки/особых условий — Анна не обещает, переадресует
+        #     администратору; карточка потом помечается.
+        if detect_discount(text):
+            return await self._discount_protocol(session, clinic, fields)
+
         # 4. Лимит сообщений на сессию: честное завершение с телефоном
         #    клиники. Если телефон уже собран — отдаём клинике частичный лид,
         #    чтобы она перезвонила сама.
@@ -269,7 +331,7 @@ class DialogueEngine:
                 session = {**session, "state": step}
                 if step == "CONFIRM":
                     return await self._confirm(session, clinic, fields)
-                reply = await self._llm_reply(session, clinic, step)
+                reply = await self._step_reply(session, clinic, step)
                 return await self._reply(session_id, [reply])
             if looks_like_phone_attempt(text):
                 reply = await self._llm_reply(session, clinic, "PHONE_RETRY")
@@ -314,14 +376,79 @@ class DialogueEngine:
         return result
 
     async def _confirm(self, session: dict, clinic: Clinic, fields: dict) -> DialogueResult:
+        # Ручной режим: создаём заявку в статусе pending. Финальное подтверждение
+        # пациенту уходит ТОЛЬКО после тапа администратора «Подтвердить».
         is_night = not self._schedules[clinic.slug].is_open(now_msk())
+        discount = bool(fields.get("discount_asked"))
         await self.db.update_session(session["id"], state="DONE", fields=fields)
-        await self.leads.submit(session, fields, is_night=is_night)
+        await self.leads.submit(
+            session,
+            fields,
+            is_night=is_night,
+            status="pending",
+            wants_callback=discount,
+            summary="Просил скидку/особые условия — переадресовано администратору" if discount else None,
+        )
         goal = "CONFIRM_NIGHT" if is_night else "CONFIRM"
         reply = await self._llm_reply(session, clinic, goal)
         result = await self._reply(session["id"], [reply])
         result.lead_created = True
         return result
+
+    # --- Этап B: детерминированные протоколы цены / нецелевого / скидки --------
+
+    def _match_service(self, clinic: Clinic, text: str):
+        low = text.lower()
+        for s in clinic.services:
+            head = s.name.lower().split()[0][:5]
+            if head and head in low:
+                return s
+        # частые синонимы
+        if "имплант" in low:
+            return next((s for s in clinic.services if "имплант" in s.name.lower()), None)
+        if "чистк" in low or "гигиен" in low:
+            return next((s for s in clinic.services if "гигиен" in s.name.lower()), None)
+        return None
+
+    def _price_text(self, clinic: Clinic, service) -> str:
+        if service and service.price_from and service.price_to:
+            return f"Ориентир по услуге «{service.name}»: {service.price_from}–{service.price_to} ₽."
+        if service and service.price_from:
+            return f"«{service.name}» — от {service.price_from} ₽."
+        return "По этой услуге точную стоимость назовёт врач на осмотре."
+
+    async def _price_protocol(self, session, clinic: Clinic, fields, text) -> DialogueResult:
+        service = self._match_service(clinic, text)
+        price = self._price_text(clinic, service)
+        slots = ", ".join(next_slots_text(clinic, now_msk(), 2)) or "ближайшее удобное время"
+        reply = (
+            f"{price} Точную стоимость назовёт врач на осмотре — приходите на консультацию. "
+            f"Есть время: {slots}. Как вас зовут?"
+        )
+        if service and not fields.get("service"):
+            fields["service"] = service.name
+            await self.db.update_session(session["id"], fields=fields)
+        return await self._reply(session["id"], [reply])
+
+    async def _nontarget_protocol(self, session, clinic: Clinic, fields) -> DialogueResult:
+        await self.db.update_session(session["id"], state="DONE", fields=fields)
+        await self.leads.submit(session, fields, status="nontarget", summary="Нецелевой запрос")
+        reply = (
+            f"Мы стоматология «{clinic.name}» — с этим, к сожалению, не поможем. "
+            f"Если нужна стоматологическая помощь, подскажу и запишу."
+        )
+        result = await self._reply(session["id"], [reply])
+        result.lead_created = True
+        return result
+
+    async def _discount_protocol(self, session, clinic: Clinic, fields) -> DialogueResult:
+        fields["discount_asked"] = True
+        await self.db.update_session(session["id"], fields=fields)
+        reply = (
+            "По скидкам и особым условиям решает администратор — обязательно передам "
+            "ему ваш вопрос. А пока подберём удобное время? Как вас зовут?"
+        )
+        return await self._reply(session["id"], [reply])
 
     # --- LLM ------------------------------------------------------------------
 
@@ -357,8 +484,19 @@ class DialogueEngine:
         else:
             # Поля продвинули шаг вперёд (или модель вернула только function
             # call) — формулируем реплику уже под новую цель.
-            reply = await self._llm_reply(session, clinic, new_step)
+            reply = await self._step_reply(session, clinic, new_step)
         return await self._reply(session["id"], [reply])
+
+    async def _step_reply(self, session: dict, clinic: Clinic, step: str) -> str:
+        """Реплика под цель шага. Для TIME предлагаем 2–3 конкретных слота."""
+        if step == "TIME":
+            slots = ", ".join(next_slots_text(clinic, now_msk(), 3))
+            if slots:
+                return (
+                    f"Когда удобно прийти? Ближайшее свободное время: {slots}. "
+                    f"Или напишите свой вариант."
+                )
+        return await self._llm_reply(session, clinic, step)
 
     async def _llm_reply(self, session: dict, clinic: Clinic, goal: str) -> str:
         history = await self.db.recent_messages(
@@ -380,23 +518,7 @@ class DialogueEngine:
     # --- Вспомогательное --------------------------------------------------------
 
     def _merge_fields(self, current: dict, extracted: dict) -> dict:
-        merged = dict(current)
-        for key in ("service", "urgency", "name", "phone", "preferred_time"):
-            value = extracted.get(key)
-            if not value or not str(value).strip():
-                continue
-            value = str(value).strip()
-            if key == "phone":
-                phone = normalize_phone(value)
-                if phone:
-                    merged["phone"] = phone
-                continue
-            if key == "urgency":
-                if value in _LLM_URGENCY:
-                    merged["urgency"] = value
-                continue
-            merged[key] = value
-        return merged
+        return qualifier.merge_fields(current, extracted)
 
     def _next_step(self, fields: dict) -> str:
         for key, step in FIELD_ORDER:

@@ -44,6 +44,9 @@ def format_lead_card(
     is_urgent: bool,
     is_night: bool,
     wants_human: bool,
+    status: str = "new",
+    is_repeat: bool = False,
+    wants_callback: bool = False,
 ) -> str:
     urgency = "urgent" if is_urgent else fields.get("urgency")
     lines = [
@@ -55,8 +58,14 @@ def format_lead_card(
         f" · Источник: {session['source']}",
         f"⏱ {now_msk().strftime('%d.%m.%Y %H:%M')} · диалог #{session['id']}",
     ]
+    if status == "pending":
+        lines.insert(1, "⏳ Ожидает подтверждения — тапните «Подтвердить запись»")
     if wants_human:
         lines.insert(1, "🙋 Пациент просит живого администратора — свяжитесь как можно скорее")
+    if wants_callback:
+        lines.append("📞 Просит перезвонить")
+    if is_repeat:
+        lines.append("↩️ Повторный пациент")
     if is_night:
         lines.append("🌙 Ночная заявка (вне графика клиники)")
     return "\n".join(lines)
@@ -76,14 +85,27 @@ class LeadService:
         is_urgent: bool = False,
         is_night: bool = False,
         wants_human: bool = False,
+        status: str = "new",
+        wants_callback: bool = False,
+        recovered_from_miss: bool = False,
+        summary: str | None = None,
     ) -> int:
         clinic = self.clinics[session["clinic_slug"]]
+        phone = fields.get("phone")
+        is_repeat = await self.db.phone_seen_before(clinic.slug, phone) if phone else False
+        sum_rub = clinic.service_avg_check(fields.get("service"))
         lead_id = await self.db.create_lead(
             session,
             fields,
             is_urgent=is_urgent,
             is_night=is_night,
             wants_human=wants_human,
+            status=status,
+            is_repeat=is_repeat,
+            wants_callback=wants_callback,
+            recovered_from_miss=recovered_from_miss,
+            summary=summary,
+            sum_rub=sum_rub,
         )
         card = format_lead_card(
             clinic,
@@ -92,6 +114,9 @@ class LeadService:
             is_urgent=is_urgent,
             is_night=is_night,
             wants_human=wants_human,
+            status=status,
+            is_repeat=is_repeat,
+            wants_callback=wants_callback,
         )
         try:
             await self.notifier.send_group_message(clinic.tg_group_id, card)

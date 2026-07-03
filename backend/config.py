@@ -28,6 +28,7 @@ DEFAULT_SOURCE = "direct"
 class Service(BaseModel):
     name: str
     price_from: int | None = None
+    price_to: int | None = None  # Этап B: диапазон цен «от…до» для ответов Анны
 
 
 class Clinic(BaseModel):
@@ -44,6 +45,43 @@ class Clinic(BaseModel):
     services: list[Service] = Field(default_factory=list)
     sms_sender: str | None = None
     novofon_number: str | None = None
+
+    # --- Этап B ---
+    slot_step_min: int = 30           # шаг слотов расписания, минут
+    avg_check: int = 5000             # средний чек — оценка возвращённых ₽ на записи
+    clinic_token: str | None = None   # токен клиники в URL вебхука телефонии
+    channels: list[str] = Field(default_factory=lambda: ["telegram", "sms"])  # max|telegram|sms
+    anna_texts: dict[str, str] = Field(default_factory=dict)  # переопределения реплик Анны
+
+    @property
+    def shtab_chat_id(self) -> int:
+        """Чат Штаба = группа клиники в Telegram (единый чат в этой версии)."""
+        return self.tg_group_id
+
+    def price_range_text(self) -> str:
+        """Диапазоны цен для системного промпта: «Имплантация — 25 000–45 000 ₽»."""
+        lines = []
+        for s in self.services:
+            if s.price_from and s.price_to:
+                lines.append(f"- {s.name} — {s.price_from}–{s.price_to} ₽")
+            elif s.price_from:
+                lines.append(f"- {s.name} — от {s.price_from} ₽")
+            elif s.price_from == 0:
+                lines.append(f"- {s.name} — бесплатно")
+            else:
+                lines.append(f"- {s.name} — точную стоимость определит врач после осмотра")
+        return "\n".join(lines) if lines else "- Консультация"
+
+    def service_avg_check(self, service: str | None) -> int:
+        """Оценка возвращённых ₽ по услуге: середина диапазона, иначе средний чек."""
+        if service:
+            for s in self.services:
+                if s.name.lower() in service.lower() or service.lower() in s.name.lower():
+                    if s.price_from and s.price_to:
+                        return (s.price_from + s.price_to) // 2
+                    if s.price_from:
+                        return s.price_from
+        return self.avg_check
 
     @field_validator("slug")
     @classmethod
@@ -167,6 +205,20 @@ class Settings(BaseModel):
     flood_max_messages: int = 5
     flood_window_seconds: int = 10
 
+    # --- Этап B ---
+    jwt_secret: str = "dev-insecure-change-me-please-generate-in-setup-sh"  # на проде — openssl rand
+    jwt_days: int = 30
+    smsru_api_id: str = ""                          # SMS.ru api_id (провайдер по ТЗ)
+    max_bot_token: str = ""                         # MAX (заглушка)
+    shtab_bot_token: str = ""                       # Штаб-бот; пусто → используем bot_token
+    cabinet_origin: str = "*"                       # CORS-origin кабинета (Vercel)
+    sms_daily_limit: int = 100                      # дневной лимит SMS на клинику
+    telephony_per_min: int = 5                      # лимит вебхуков телефонии на номер
+
+    @property
+    def shtab_token(self) -> str:
+        return self.shtab_bot_token or self.bot_token
+
 
 def load_settings() -> Settings:
     return Settings(
@@ -186,6 +238,14 @@ def load_settings() -> Settings:
         public_base_url=_env("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/"),
         db_path=_env("DB_PATH", "data/podkhvat.db"),
         log_level=_env("LOG_LEVEL", "INFO"),
+        jwt_secret=_env("JWT_SECRET", "dev-insecure-change-me"),
+        jwt_days=int(_env("JWT_DAYS", "30")),
+        smsru_api_id=_env("SMSRU_API_ID"),
+        max_bot_token=_env("MAX_BOT_TOKEN"),
+        shtab_bot_token=_env("SHTAB_BOT_TOKEN"),
+        cabinet_origin=_env("CABINET_ORIGIN", "*"),
+        sms_daily_limit=int(_env("SMS_DAILY_LIMIT", "100")),
+        telephony_per_min=int(_env("TELEPHONY_PER_MIN", "5")),
     )
 
 
