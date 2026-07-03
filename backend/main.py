@@ -32,6 +32,7 @@ from backend.core.dialogue import DialogueEngine
 from backend.core.llm import GigaChatLLM
 from backend.db import Database
 from backend.digest import DigestService
+from backend.followups import FollowupService
 from backend.leads import LeadService
 from backend.missed_calls import SmsAeroClient
 from backend.missed_calls import router as novofon_router
@@ -87,6 +88,7 @@ async def lifespan(app: FastAPI):
     dispatcher = ChannelDispatcher(
         db, max_adapter=max_adapter, sms_adapter=sms_adapter,
         telegram_adapter=tg_adapter, ratelimit=ratelimit,
+        notifier=notifier, owner_chat_id=settings.owner_tg_id or None,
     )
 
     bot_username = None
@@ -130,6 +132,16 @@ async def lifespan(app: FastAPI):
     weekly = WeeklyReport(db, clinics, notifier, settings)
     weekly_scheduler = weekly.start_scheduler()
 
+    async def _followup_send(session: dict, text: str) -> bool:
+        # Пуш возможен только в Telegram-диалог; виджет-пациент опрашивает сам.
+        if session.get("channel") == "telegram":
+            res = await tg_adapter.send(session["external_id"], text)
+            return res.ok
+        return False
+
+    followups = FollowupService(db, clinics, _followup_send)
+    followups_scheduler = followups.start_scheduler()
+
     logger.info(
         "Подхват запущен: клиник {}, бот @{}, модель {}",
         len(clinics),
@@ -141,6 +153,7 @@ async def lifespan(app: FastAPI):
     finally:
         scheduler.shutdown(wait=False)
         weekly_scheduler.shutdown(wait=False)
+        followups_scheduler.shutdown(wait=False)
         try:
             await dp.stop_polling()
         except Exception:

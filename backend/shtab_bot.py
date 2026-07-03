@@ -40,11 +40,18 @@ def build_keyboard(lead: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _clinic_by_chat(clinics: dict[str, Clinic], chat_id: int, default_slug: str) -> Clinic | None:
+def _clinic_by_chat(
+    clinics: dict[str, Clinic], chat_id: int, settings: Settings
+) -> Clinic | None:
+    """Клиника по чату. Только известные группы клиник или ЛС владельца —
+    иначе None (не отдаём default незнакомцу: /login выдал бы валидный вход,
+    /week — выручку). См. ревью безопасности."""
     for c in clinics.values():
         if c.tg_group_id == chat_id:
             return c
-    return clinics.get(default_slug)
+    if settings.owner_tg_id and chat_id == settings.owner_tg_id:
+        return clinics.get(settings.default_clinic_slug)
+    return None
 
 
 def create_shtab_router(
@@ -57,7 +64,7 @@ def create_shtab_router(
 
     @router.message(Command("login"))
     async def cmd_login(message: Message) -> None:
-        clinic = _clinic_by_chat(clinics, message.chat.id, settings.default_clinic_slug)
+        clinic = _clinic_by_chat(clinics, message.chat.id, settings)
         if clinic is None:
             await message.answer("Не удалось определить клинику для входа.")
             return
@@ -68,7 +75,7 @@ def create_shtab_router(
 
     @router.message(Command("week"))
     async def cmd_week(message: Message) -> None:
-        clinic = _clinic_by_chat(clinics, message.chat.id, settings.default_clinic_slug)
+        clinic = _clinic_by_chat(clinics, message.chat.id, settings)
         if clinic is None:
             return
         await message.answer(await build_weekly_report(db, clinic))
@@ -81,7 +88,7 @@ def create_shtab_router(
         except ValueError:
             await cq.answer("Некорректная кнопка")
             return
-        clinic = _clinic_by_chat(clinics, cq.message.chat.id, settings.default_clinic_slug)
+        clinic = _clinic_by_chat(clinics, cq.message.chat.id, settings)
         if clinic is None:
             await cq.answer("Клиника не найдена")
             return

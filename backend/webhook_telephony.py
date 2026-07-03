@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
@@ -27,7 +29,8 @@ def clinic_by_token(clinics: dict[str, Clinic], token: str) -> Clinic | None:
     if not token:
         return None
     for clinic in clinics.values():
-        if clinic.clinic_token and clinic.clinic_token == token:
+        # Постоянное по времени сравнение: токен — единственный гейт платных SMS.
+        if clinic.clinic_token and secrets.compare_digest(clinic.clinic_token, token):
             return clinic
     return None
 
@@ -80,8 +83,11 @@ async def telephony_webhook(request: Request):
         logger.warning("Телефония: превышен лимит событий с номера {}", masked)
         return JSONResponse({"error": "rate limited"}, status_code=429)
 
-    # Идемпотентность по (clinic, номер, время звонка).
-    call_id = data.get("pbx_call_id") or data.get("call_id") or f"{clinic.slug}:{caller}:{call_time}"
+    # Идемпотентность по (clinic, номер, время звонка). Ключ ВСЕГДА префиксован
+    # slug клиники — иначе одинаковый pbx_call_id у разных провайдеров/клиник
+    # (call_id UNIQUE глобальный) съел бы чужой звонок как «дубль».
+    raw_id = data.get("pbx_call_id") or data.get("call_id") or f"{caller}:{call_time}"
+    call_id = f"{clinic.slug}:{raw_id}"
     is_new = await state.db.record_missed_call(call_id, clinic.slug, caller)
     if not is_new:
         return {"status": "duplicate"}

@@ -112,6 +112,10 @@ CREATE TABLE IF NOT EXISTS auto_messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_auto_msg ON auto_messages(clinic_slug, phone, created_at);
+-- Атомарный дневной лимит: не более одной записи на (клиника, номер, дата).
+-- Резерв делается INSERT'ом ДО отправки; IntegrityError = «сегодня уже слали».
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_auto_msg_day
+    ON auto_messages(clinic_slug, phone, substr(created_at, 1, 10));
 """
 
 # Этап B: новые колонки таблицы leads. Добавляются идемпотентно (ALTER ... ADD COLUMN)
@@ -385,13 +389,16 @@ class Database:
             return False, None
         if lead.get("confirmed_at"):
             return False, lead
-        await self.conn.execute(
+        # Победителя гонки определяем по rowcount UPDATE, а не по повторному чтению
+        # (TOCTOU: два конкурентных тапа иначе оба получили бы newly=True).
+        cur = await self.conn.execute(
             "UPDATE leads SET status = 'booked', confirmed_at = ?"
             " WHERE id = ? AND clinic_slug = ? AND confirmed_at IS NULL",
             (_ts(), lead_id, clinic_slug),
         )
         await self.conn.commit()
-        return True, await self.get_lead(lead_id, clinic_slug)
+        newly = cur.rowcount == 1
+        return newly, await self.get_lead(lead_id, clinic_slug)
 
     async def lead_transcript(self, lead_id: int, clinic_slug: str) -> list[dict[str, Any]]:
         lead = await self.get_lead(lead_id, clinic_slug)
@@ -476,16 +483,14 @@ class Database:
             return None
         if rec["expires_at"] < _ts():
             return None
-        await self.conn.execute(
+        # Одноразовость под гонкой: возвращаем clinic_slug только тому, чей UPDATE
+        # реально пометил токен (rowcount==1), а не «used_at теперь установлен».
+        cur = await self.conn.execute(
             "UPDATE magic_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL",
             (_ts(), token),
         )
         await self.conn.commit()
-        # Проверяем, что именно мы пометили (защита от гонки двойного перехода).
-        check = await self._fetchone(
-            "SELECT used_at FROM magic_tokens WHERE token = ?", (token,)
-        )
-        return rec["clinic_slug"] if check and check["used_at"] else None
+        return rec["clinic_slug"] if cur.rowcount == 1 else None
 
     # --- Деньги: недельный отчёт кабинета ----------------------------------
 
@@ -524,6 +529,22 @@ class Database:
             (clinic_slug, phone, _ts()),
         )
         await self.conn.commit()
+
+    async def reserve_auto_message(self, clinic_slug: str, phone: str) -> bool:
+        """Атомарно резервирует дневной слот авто-сообщения на номер.
+
+        True — слот наш (можно слать); False — сегодня уже слали (лимит).
+        Гонка двух одновременных доставок исключена уникальным индексом.
+        """
+        try:
+            await self.conn.execute(
+                "INSERT INTO auto_messages (clinic_slug, phone, created_at) VALUES (?, ?, ?)",
+                (clinic_slug, phone, _ts()),
+            )
+            await self.conn.commit()
+            return True
+        except aiosqlite.IntegrityError:
+            return False
 
     async def leads_by_source(self, days: int) -> list[dict[str, Any]]:
         rows = await self._fetchall(

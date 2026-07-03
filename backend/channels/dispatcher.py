@@ -31,6 +31,8 @@ class Dispatcher:
         telegram_adapter: ChannelAdapter | None = None,
         ratelimit: RateLimiter | None = None,
         fallback_seconds: float = 30.0,
+        notifier=None,
+        owner_chat_id: int | None = None,
     ):
         self.db = db
         self.max = max_adapter
@@ -38,6 +40,8 @@ class Dispatcher:
         self.telegram = telegram_adapter
         self.ratelimit = ratelimit or RateLimiter()
         self.fallback_seconds = fallback_seconds
+        self.notifier = notifier            # для уведомления админа при лимите
+        self.owner_chat_id = owner_chat_id
 
     async def deliver_first_message(
         self,
@@ -50,19 +54,24 @@ class Dispatcher:
         respect_daily_limit: bool = True,
     ) -> DeliveryResult:
         """Доставить первое сообщение пациенту каскадом. Возвращает итог доставки."""
-        # Дневной лимит на номер (идемпотентность + защита от спама/атаки).
-        if respect_daily_limit and not await self.db.auto_message_allowed(clinic_slug, phone):
+        # Дневной лимит на номер: атомарный резерв ДО отправки (не check-then-act) —
+        # два одновременных пропущенных с одного номера не дадут двух авто-сообщений.
+        # Компромисс: неуспешная доставка тоже расходует слот дня (человек добьёт из
+        # Штаба); зато никогда не бывает двойной отправки/двойного списания SMS.
+        if respect_daily_limit and not await self.db.reserve_auto_message(clinic_slug, phone):
             logger.info("Дневной лимит авто-сообщений на номер {} — пропуск", phone)
             return DeliveryResult(ok=False, channel="none", detail="daily-limit")
 
         result = DeliveryResult(ok=False, channel="none", detail="no channel")
+
+        # Слот дня уже зарезервирован выше (reserve_auto_message) — отдельная
+        # запись «отправлено» больше не нужна.
 
         # 1) Существующий диалог в Telegram — самый надёжный путь.
         if existing_tg_chat_id and "telegram" in channels and self.telegram is not None:
             result = await self.telegram.send(existing_tg_chat_id, text)
             await self.db.record_delivery_attempt(clinic_slug, phone, "telegram", result.ok)
             if result.ok:
-                await self._mark_sent(clinic_slug, phone)
                 return result
 
         # 2) MAX первым по номеру (в этой версии — заглушка, обычно не доставит).
@@ -75,7 +84,6 @@ class Dispatcher:
                 result = DeliveryResult(ok=False, channel="max", detail="timeout")
             await self.db.record_delivery_attempt(clinic_slug, phone, "max", result.ok)
             if result.ok:
-                await self._mark_sent(clinic_slug, phone)
                 return result
 
         # 3) SMS.ru — мост (fallback).
@@ -84,14 +92,21 @@ class Dispatcher:
             if not allowed:
                 logger.error("Дневной SMS-лимит клиники {} исчерпан — SMS не отправлена", clinic_slug)
                 await self.db.record_delivery_attempt(clinic_slug, phone, "sms", False)
+                await self._notify_limit(clinic_slug, "SMS")
                 return DeliveryResult(ok=False, channel="sms", detail="sms-daily-limit")
             result = await self.sms.send(phone, text)
             await self.db.record_delivery_attempt(clinic_slug, phone, "sms", result.ok)
-            if result.ok:
-                await self._mark_sent(clinic_slug, phone)
             return result
 
         return result
 
-    async def _mark_sent(self, clinic_slug: str, phone: str) -> None:
-        await self.db.record_auto_message(clinic_slug, phone)
+    async def _notify_limit(self, clinic_slug: str, kind: str) -> None:
+        """Уведомление админа при достижении лимита — не молчаливый отказ (Фаза 7)."""
+        if self.notifier is None or self.owner_chat_id is None:
+            return
+        try:
+            await self.notifier.send_group_message(
+                self.owner_chat_id, f"⚠️ Лимит {kind} по клинике {clinic_slug} исчерпан — доставка остановлена."
+            )
+        except Exception as e:
+            logger.error("Не удалось уведомить админа о лимите: {}", e)

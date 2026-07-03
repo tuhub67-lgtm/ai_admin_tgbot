@@ -238,7 +238,9 @@ def load_settings() -> Settings:
         public_base_url=_env("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/"),
         db_path=_env("DB_PATH", "data/podkhvat.db"),
         log_level=_env("LOG_LEVEL", "INFO"),
-        jwt_secret=_env("JWT_SECRET", "dev-insecure-change-me"),
+        # JWT — весь контроль изоляции арендаторов. Fail closed: без секрета не стартуем
+        # (setup.sh генерирует его openssl rand). Дефолт модели виден только тестам.
+        jwt_secret=_env("JWT_SECRET", required=True),
         jwt_days=int(_env("JWT_DAYS", "30")),
         smsru_api_id=_env("SMSRU_API_ID"),
         max_bot_token=_env("MAX_BOT_TOKEN"),

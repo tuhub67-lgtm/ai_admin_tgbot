@@ -108,7 +108,8 @@ _PRICE_RE = re.compile(
     re.IGNORECASE,
 )
 _NONTARGET_RE = re.compile(
-    r"пицц|такси|доставк\w*\s*(еды|воды|пицц)|\bкредит\b|ваканси|"
+    # «кредит/рассрочка» намеренно НЕ здесь — это валидный вопрос про оплату лечения.
+    r"пицц|такси|доставк\w*\s*(еды|воды|пицц)|ваканси|"
     r"устро\w*\s+на\s+работ|резюме|рекламн\w*\s+предложен|сотруднич\w*|курьер|"
     r"\bремонт\s+(квартир|телефон)",
     re.IGNORECASE,
@@ -348,6 +349,10 @@ class DialogueEngine:
         self, session: dict, clinic: Clinic, fields: dict, text: str
     ) -> DialogueResult:
         reply = prompts.fallback_reply("URGENT", clinic)
+        # При острой боли — сразу телефон/103 И ближайшее окно (ТЗ #4).
+        slots = next_slots_text(clinic, now_msk(), 1)
+        if slots:
+            reply += f" Ближайшее свободное окно — {slots[0]}, придержим для вас."
         # Повторный срочный сигнал в уже оповещённой сессии — только реплика
         # с телефоном, без дублирующего лида в группу.
         if fields.get("urgency") == "urgent":

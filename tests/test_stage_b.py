@@ -46,12 +46,14 @@ class FakeChannel(ChannelAdapter):
         return DeliveryResult(ok=self._ok, channel=self.name)
 
 
-def make_dispatcher(db, *, max_ok=False, max_can_phone=False, sms_ok=True, ratelimit=None):
+def make_dispatcher(db, *, max_ok=False, max_can_phone=False, sms_ok=True,
+                    ratelimit=None, notifier=None, owner_chat_id=None):
     mx = FakeChannel("max", ok=max_ok, can_phone=max_can_phone)
     sms = FakeChannel("sms", ok=sms_ok)
     disp = Dispatcher(db, max_adapter=mx, sms_adapter=sms,
                       telegram_adapter=FakeChannel("telegram"),
-                      ratelimit=ratelimit or RateLimiter())
+                      ratelimit=ratelimit or RateLimiter(),
+                      notifier=notifier, owner_chat_id=owner_chat_id)
     return disp, mx, sms
 
 
@@ -132,7 +134,9 @@ async def test_03_night_request(engine, db, session, notifier, night_clock):
 async def test_04_acute_pain_urgent(engine, db, session, notifier, clinics):
     await engine.start_session(session)
     replies = await talk(engine, db, session, "Очень болит зуб, опухла щека")
-    assert any("103" in r for r in replies)
+    joined = " ".join(replies)
+    assert "103" in joined
+    assert "окно" in joined.lower()  # предложено ближайшее свободное окно (ТЗ #4)
     lead = await db._fetchone("SELECT * FROM leads")
     assert lead["is_urgent"] == 1
     _, card = notifier.sent[-1]
@@ -175,20 +179,25 @@ async def test_07_nontarget(engine, db, session, notifier):
 # --- 8. Молчание → 1 follow-up через 2 часа, не больше ------------------------
 
 async def test_08_single_followup(db, clinics):
+    from backend.followups import FollowupService
     from backend.utils import now_msk
     session = await db.get_or_create_session("demo-dent", "telegram", "fu-1", "landing")
     await db.add_message(session["id"], "assistant", "Как к вам обращаться?")
-    # Двигаем время последнего сообщения на 3 часа назад (по тем же «часам», что и запрос)
+    # Последнее сообщение — 3 часа назад (по тем же «часам», что и запрос)
     old = (now_msk() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
     await db.conn.execute(
         "UPDATE messages SET created_at = ? WHERE session_id = ?", (old, session["id"]),
     )
     await db.conn.commit()
-    due = await db.sessions_needing_followup(hours=2)
-    assert any(s["id"] == session["id"] for s in due)
-    await db.mark_followup_sent(session["id"])
-    due2 = await db.sessions_needing_followup(hours=2)
-    assert all(s["id"] != session["id"] for s in due2)  # не более одного
+
+    # Сквозь сервис-планировщик: ровно одно напоминание, второй проход — ноль.
+    sent = []
+    async def send_fn(s, text):
+        sent.append((s["id"], text))
+        return True
+    svc = FollowupService(db, clinics, send_fn)
+    assert await svc.run_once(hours=2) == 1 and len(sent) == 1
+    assert await svc.run_once(hours=2) == 0 and len(sent) == 1  # не более одного
 
 
 # --- 9. Повторный номер → пометка «повторный пациент» ------------------------
@@ -211,7 +220,8 @@ async def test_10_week_report(db, clinics, leads):
         await db.set_lead_status(lid, "demo-dent", "booked")
     report = await build_weekly_report(db, clinics["demo-dent"])
     assert "Записано: 2" in report
-    assert "Возвращено" in report and "₽" in report
+    # Имплантация: середина диапазона 25000–45000 = 35000 × 2 = 70000 ₽ (точная сумма)
+    assert "70000 ₽" in report
 
 
 # --- 11. Каскад: MAX недоступен → SMS fallback ≤30 сек -----------------------
@@ -281,6 +291,13 @@ async def test_15_redaction(db, clinics):
     body = " ".join(m["content"] for m in dialog)
     assert "[скрыто]" in body
     assert "пульпит" not in body and "киста" not in body
+
+    # Redaction также для summary карточки лида (не только transcript)
+    s2 = await db.get_or_create_session("demo-dent", "telegram", "rd-2", "landing")
+    lid = await db.create_lead(s2, {"name": "N", "phone": "+79990000002"},
+                               summary="Со слов пациента — пульпит")
+    lead = await db.get_lead(lid, "demo-dent")
+    assert "[скрыто]" in (lead["summary"] or "") and "пульпит" not in (lead["summary"] or "")
 
 
 # --- 16. Тот же номер, 2 пропущенных/день → 2-е автосообщение не уходит ------
@@ -414,12 +431,15 @@ async def test_sec_b_webhook_requires_token(db, clinics, settings):
 
 async def test_sec_c_sms_daily_limit(db, clinics):
     rl = RateLimiter(sms_daily_per_clinic=0)  # лимит исчерпан
-    disp, mx, sms = make_dispatcher(db, ratelimit=rl)
+    notifier = FakeNotifier()
+    disp, mx, sms = make_dispatcher(db, ratelimit=rl, notifier=notifier, owner_chat_id=777)
     res = await disp.deliver_first_message("demo-dent", "+79167778899", "текст", channels=["sms"])
     assert res.ok is False and res.detail == "sms-daily-limit"
     assert sms.sent == []  # ни одной SMS не ушло
     rows = await db._fetchall("SELECT * FROM delivery_attempts WHERE channel='sms'")
     assert rows and rows[0]["success"] == 0  # факт блокировки зафиксирован
+    # Не молчаливый отказ: админ уведомлён (Фаза 7)
+    assert notifier.sent and any("лимит" in t.lower() for _, t in notifier.sent)
 
 
 # --- (d) Протухший/использованный magic-link → отказ ------------------------

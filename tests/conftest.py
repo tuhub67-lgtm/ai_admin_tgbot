@@ -21,7 +21,9 @@ from backend.utils import MSK
 
 # Вторник, рабочий день клиники demo-dent (Пн–Сб 9:00–20:00)
 DAY = datetime(2026, 6, 30, 12, 0, tzinfo=MSK)
-NIGHT = datetime(2026, 6, 30, 23, 0, tzinfo=MSK)
+# Ночь 02:00 МСК = 23:00 UTC предыдущих суток — специально пересекаем границу дат
+# MSK↔UTC (Фаза 8: «ночной запрос 02:00»), чтобы ловить timezone-баги.
+NIGHT = datetime(2026, 7, 1, 2, 0, tzinfo=MSK)
 
 SERVICE_MAP = {
     "профгигиен": "Профгигиена",
