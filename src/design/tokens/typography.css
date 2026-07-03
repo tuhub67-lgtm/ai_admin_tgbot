@@ -1,0 +1,43 @@
+/* Подхват AI+ — типографика. Golos Text (заголовки, цифры) + Inter (текст). Минимум интерфейса: 16px */
+@import url('https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --font-display:'Golos Text','Helvetica Neue',Arial,sans-serif;
+  --font-body:'Inter','Helvetica Neue',Arial,sans-serif;
+  --tnum:'tnum' 1,'lnum' 1;
+
+  --fs-money-xl:72px; --fs-money-xl-mobile:56px;
+  --fs-money-lg:44px; --fs-money-md:28px;
+  --fs-h1:40px; --fs-h2:30px; --fs-h3:24px; --fs-h4:20px;
+  --fs-body-lg:18px; --fs-body:16px; /* минимальный кегль */
+}
+
+body {
+  margin:0; font-family:var(--font-body); font-size:var(--fs-body); line-height:1.5;
+  color:var(--text); background:var(--bg);
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+
+/* Стили шкалы */
+.h1{font-family:var(--font-display);font-size:var(--fs-h1);line-height:1.15;font-weight:700;letter-spacing:-0.01em;margin:0}
+.h2{font-family:var(--font-display);font-size:var(--fs-h2);line-height:1.2;font-weight:700;margin:0}
+.h3{font-family:var(--font-display);font-size:var(--fs-h3);line-height:1.25;font-weight:600;margin:0}
+.h4{font-family:var(--font-display);font-size:var(--fs-h4);line-height:1.3;font-weight:600;margin:0}
+.body-lg{font-size:var(--fs-body-lg);line-height:1.5}
+.body-med{font-weight:500}
+.caption{color:var(--text-secondary)}
+.overline{font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:16px}
+
+/* «Денежная цифра»: очень крупно, табличные цифры, ₽ встроен */
+.money-xl,.money-lg,.money-md{
+  font-family:var(--font-display);font-weight:700;
+  font-feature-settings:var(--tnum);font-variant-numeric:tabular-nums lining-nums;
+  white-space:nowrap;
+}
+.money-xl{font-size:var(--fs-money-xl);line-height:1.05;letter-spacing:-0.02em}
+.money-lg{font-size:var(--fs-money-lg);line-height:1.1;letter-spacing:-0.01em}
+.money-md{font-size:var(--fs-money-md);line-height:1.15}
+.money-rub{font-weight:600;opacity:.85;margin-left:.12em} /* знак ₽ чуть легче цифры */
+@media (max-width:480px){ .money-xl{font-size:var(--fs-money-xl-mobile)} }
+
+.tnum{font-feature-settings:var(--tnum);font-variant-numeric:tabular-nums lining-nums}

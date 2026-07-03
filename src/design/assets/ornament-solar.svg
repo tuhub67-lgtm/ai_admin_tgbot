@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none" stroke="#6F0D1E" stroke-width="1.5">
+  
+  <circle cx="120" cy="120" r="22"></circle>
+  <circle cx="120" cy="120" r="8"></circle>
+  <g>
+    <line x1="120" y1="86" x2="120" y2="66"></line><line x1="120" y1="174" x2="120" y2="154"></line>
+    <line x1="86" y1="120" x2="66" y2="120"></line><line x1="174" y1="120" x2="154" y2="120"></line>
+    <line x1="96" y1="96" x2="82" y2="82"></line><line x1="144" y1="144" x2="158" y2="158"></line>
+    <line x1="144" y1="96" x2="158" y2="82"></line><line x1="96" y1="144" x2="82" y2="158"></line>
+    <line x1="103" y1="88" x2="95" y2="73"></line><line x1="137" y1="88" x2="145" y2="73"></line>
+    <line x1="103" y1="152" x2="95" y2="167"></line><line x1="137" y1="152" x2="145" y2="167"></line>
+    <line x1="88" y1="103" x2="73" y2="95"></line><line x1="88" y1="137" x2="73" y2="145"></line>
+    <line x1="152" y1="103" x2="167" y2="95"></line><line x1="152" y1="137" x2="167" y2="145"></line>
+  </g>
+  <polygon points="120,34 180,58 206,120 180,182 120,206 60,182 34,120 60,58"></polygon>
+  <g stroke-width="2">
+    <line x1="120" y1="24" x2="120" y2="14"></line><line x1="120" y1="226" x2="120" y2="216"></line>
+    <line x1="24" y1="120" x2="14" y2="120"></line><line x1="226" y1="120" x2="216" y2="120"></line>
+  </g>
+  <polygon points="120,110 130,120 120,130 110,120"></polygon>
+</svg>
