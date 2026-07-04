@@ -6,8 +6,9 @@ import { Toggle } from '../../design/components/controls/Toggle.jsx';
 import { Button } from '../../design/components/controls/Button.jsx';
 import { EmptyState } from '../../design/components/feedback/EmptyState.jsx';
 import { useToast, ToastHost } from '../components/ToastHost.jsx';
+import { isEnabled as soundEnabled, setEnabled as setSoundEnabled, playSuccess } from '../lib/sound.js';
 
-/* «Настройки»: часы работы, прайс по услугам, тон Анны, каналы, тема. Сохранение → POST. */
+/* «Настройки»: часы работы, прайс по услугам, тон Анны, каналы, тема, звук. Сохранение → POST. */
 
 function Card({ title, children }) {
   return (
@@ -21,6 +22,9 @@ function Card({ title, children }) {
 export default function Settings() {
   const { theme, toggle } = useTheme();
   const { toast, showToast } = useToast();
+  const [sound, setSound] = useState(false);
+  useEffect(() => { setSound(soundEnabled()); }, []);
+  const onSound = (on) => { setSound(on); setSoundEnabled(on); if (on) playSuccess(); }; // превью «динга» по жесту
 
   const [form, setForm] = useState(null);
   const [state, setState] = useState('loading'); // loading | ready | error
@@ -128,6 +132,7 @@ export default function Settings() {
 
       <Card title="Оформление">
         <Toggle checked={theme === 'dark'} onChange={toggle} label="Тёмная тема" description="Удобно вечером и при ярком экране" />
+        <Toggle checked={sound} onChange={onSound} label="Звуки успеха" description="Тихий сигнал при новой записи. По умолчанию выключено" />
       </Card>
 
       <div style={{ position: 'sticky', bottom: 12, display: 'grid', gap: 8 }}>

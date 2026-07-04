@@ -1,0 +1,102 @@
+/* Конверсионные анимации «Подхват AI+».
+   Правила: только transform/opacity (GPU) + точечно filter/box-shadow для свечения;
+   ease-out cubic-bezier(0.25,0.1,0.25,1), 300–400ms; без бесконечных циклов;
+   цвета — только токены дизайн-системы (золото --gold-400/--cta-surface, винный --wine-800).
+   Контент никогда не остаётся скрытым, если анимация не сыграла. */
+
+:root { --anim-ease: cubic-bezier(0.25, 0.1, 0.25, 1); }
+
+/* ГЛОБАЛЬНО: уважаем prefers-reduced-motion — всё почти мгновенно (финальное состояние). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ── Keyframes (transform/opacity, один раз) ───────────────────────────── */
+@keyframes lp-money-bump {
+  from { transform: scale(1.05); filter: brightness(1.3); }
+  to   { transform: scale(1);    filter: brightness(1); }
+}
+@keyframes lp-particle {
+  0%   { opacity: 0; transform: translate(0, 0) scale(.4); }
+  15%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--tx, 0), var(--ty, -28px)) scale(1); }
+}
+@keyframes lp-reveal-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes lp-progress-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes lp-check-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes lp-pulse-once {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* ── Пункт 1: денежная цифра — «бамп» при новом значении + частицы ──────── */
+.lp-money { position: relative; display: inline-block; }
+.lp-money.is-bumped { animation: lp-money-bump 400ms var(--anim-ease) both; }
+.lp-particles {
+  position: absolute; inset: 0; pointer-events: none;
+  display: block; overflow: visible;
+}
+.lp-particles circle { animation: lp-particle 600ms var(--anim-ease) both; }
+
+/* ── Пункт 2: CTA hover/glow (обёртка вокруг read-only Button) ──────────── */
+.lp-cta {
+  display: inline-flex; border-radius: var(--r-btn);
+  transition: transform 300ms var(--anim-ease), box-shadow 300ms var(--anim-ease);
+  will-change: transform;
+}
+.lp-cta--full { display: block; }
+.lp-cta:hover {
+  transform: scale(1.03);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--gold-400) 42%, transparent);
+}
+.lp-cta:active { transform: scale(0.98); }
+
+/* Полоска-заполнение под результатом калькулятора */
+.lp-progress { height: 4px; border-radius: var(--r-pill); background: var(--surface-subtle); overflow: hidden; }
+.lp-progress__bar {
+  height: 100%; border-radius: var(--r-pill); background: var(--cta-surface);
+  transform-origin: left center;
+  animation: lp-progress-grow 400ms var(--anim-ease) both;
+}
+
+/* ── Пункт 3: чекмарк (stroke-draw) + однократный pulse ────────────────── */
+.lp-check path {
+  stroke-dasharray: 28; stroke-dashoffset: 28;
+  animation: lp-check-draw 400ms var(--anim-ease) forwards;
+}
+.lp-pulse-once { animation: lp-pulse-once 400ms var(--anim-ease) 1; }
+
+/* ── Пункт 4: scroll-reveal секций. База — ВИДИМО (контент не пропадёт). ── */
+.lp-reveal { }  /* по умолчанию opacity:1 (ничего не задаём) */
+
+/* Предпочтительный путь: scroll-driven анимация, только где поддерживается */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .lp-reveal {
+      animation: lp-reveal-up both;
+      animation-timing-function: var(--anim-ease);
+      animation-timeline: view();
+      animation-range: entry 0% cover 22%;
+    }
+  }
+}
+/* Fallback через IntersectionObserver — класс .reveal-js ставит JS ТОЛЬКО когда
+   scroll-timeline не поддерживается. Если JS не сработал — .lp-reveal остаётся видимым. */
+.reveal-js .lp-reveal {
+  opacity: 0; transform: translateY(20px);
+  transition: opacity 400ms var(--anim-ease), transform 400ms var(--anim-ease);
+}
+.reveal-js .lp-reveal.is-visible { opacity: 1; transform: none; }

@@ -9,6 +9,7 @@ import { StatusBadge } from '../../design/components/leads/StatusBadge.jsx';
 import { EmptyState } from '../../design/components/feedback/EmptyState.jsx';
 import { fmtRub } from '../../design/components/money/MoneyFigure.jsx';
 import { useToast, ToastHost } from '../components/ToastHost.jsx';
+import { playSuccess } from '../lib/sound.js';
 
 /* Карточка пациента: шапка + ключевые факты, «Что сделала Анна» с полной перепиской,
    и действия. Для «на подтверждении» — крупное «Подтвердить запись». */
@@ -67,6 +68,7 @@ export default function LeadDetail() {
     setBusy(true);
     try {
       await api.post(`/api/leads/${id}/status`, { status });
+      if (status === 'booked') playSuccess(); // «динг» на событии записи (если включён)
       showToast({ variant: 'success', title: successTitle });
       await load();
     } catch (e) {
@@ -79,6 +81,7 @@ export default function LeadDetail() {
     setBusy(true);
     try {
       await api.post(`/api/leads/${id}/confirm`);
+      playSuccess(); // «динг» на подтверждении записи (если включён в настройках)
       showToast({ variant: 'success', title: 'Пациент записан' });
       await load();
     } catch (e) {

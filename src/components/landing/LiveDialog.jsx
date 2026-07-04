@@ -1,6 +1,28 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../design/components/core/Icon.jsx';
 import { Section } from './Section.jsx';
+
+/* Галочка «договорённость достигнута»: stroke-draw + одиночный pulse.
+   По умолчанию нарисована (видима); анимацию рисования запускаем, когда чат
+   попал во вьюпорт (один раз). */
+function AgreementCheck({ play }) {
+  return (
+    <span
+      className={`lp-agreement${play ? ' lp-pulse-once' : ''}`}
+      aria-hidden="true"
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 22, height: 22, marginLeft: 8, verticalAlign: 'middle',
+        background: 'var(--success-tint)', borderRadius: 'var(--r-pill)',
+      }}
+    >
+      <svg className={play ? 'lp-check' : undefined} viewBox="0 0 24 24" width="14" height="14"
+        fill="none" stroke="var(--success-text)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 12.5l4.5 4.5L19 7" />
+      </svg>
+    </span>
+  );
+}
 
 /* Живой диалог: ночной запрос → запись на утро. Тон Анны — по DESIGN_README:
    тепло, коротко, по делу; ночью не обещает «записываю сейчас», а придерживает время. */
@@ -15,6 +37,18 @@ const chat = [
 ];
 
 export function LiveDialog() {
+  const chatRef = useRef(null);
+  const [play, setPlay] = useState(false);
+  useEffect(() => {
+    const el = chatRef.current;
+    if (!el || !('IntersectionObserver' in window)) return;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { if (e.isIntersecting) { setPlay(true); io.unobserve(el); } });
+    }, { threshold: 0.5 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   return (
     <Section>
       <p className="lp-overline">Живой диалог</p>
@@ -28,19 +62,23 @@ export function LiveDialog() {
           borderRadius: 'var(--r-card)', padding: 'var(--sp-6)', maxWidth: 620, margin: 'var(--sp-6) auto 0',
         }}
       >
-        <div className="lp-chat">
-          {chat.map((m, i) => (
-            <div key={i} className={`lp-bubble lp-bubble--${m.who === 'a' ? 'anna' : 'patient'}`}>
-              {m.who === 'a' ? (
-                <div className="lp-bubble__who" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <Icon name="max" size={14} /> Анна
-                </div>
-              ) : (
-                <div className="lp-bubble__who">Пациент{m.time ? ` · ${m.time}` : ''}</div>
-              )}
-              {m.text}
-            </div>
-          ))}
+        <div className="lp-chat" ref={chatRef}>
+          {chat.map((m, i) => {
+            const isAgreement = m.who === 'a' && i === chat.length - 1;
+            return (
+              <div key={i} className={`lp-bubble lp-bubble--${m.who === 'a' ? 'anna' : 'patient'}`}>
+                {m.who === 'a' ? (
+                  <div className="lp-bubble__who" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="max" size={14} /> Анна
+                  </div>
+                ) : (
+                  <div className="lp-bubble__who">Пациент{m.time ? ` · ${m.time}` : ''}</div>
+                )}
+                {m.text}
+                {isAgreement ? <AgreementCheck play={play} /> : null}
+              </div>
+            );
+          })}
         </div>
       </div>
     </Section>

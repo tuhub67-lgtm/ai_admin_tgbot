@@ -2,6 +2,7 @@ import React from 'react';
 import { Button } from '../../design/components/controls/Button.jsx';
 import { Icon } from '../../design/components/core/Icon.jsx';
 import { MoneyFigure } from '../../design/components/money/MoneyFigure.jsx';
+import { CtaGlow } from '../common/CtaGlow.jsx';
 import { scrollToId } from './Section.jsx';
 import { CITY } from '../../config.js';
 
@@ -33,8 +34,12 @@ export function Hero() {
             </p>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-3)', marginTop: 'var(--sp-6)' }}>
-              <Button variant="primary" size="lg" onClick={() => scrollToId('lead')}>Подключить клинику</Button>
-              <Button variant="secondary" size="lg" icon="ruble" onClick={() => scrollToId('calc')}>Посчитать мои потери</Button>
+              <CtaGlow>
+                <Button variant="primary" size="lg" onClick={() => scrollToId('lead')}>Подключить клинику</Button>
+              </CtaGlow>
+              <CtaGlow>
+                <Button variant="secondary" size="lg" icon="ruble" onClick={() => scrollToId('calc')}>Посчитать мои потери</Button>
+              </CtaGlow>
             </div>
 
             <button

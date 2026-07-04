@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Button } from '../../design/components/controls/Button.jsx';
-import { MoneyFigure, fmtRub } from '../../design/components/money/MoneyFigure.jsx';
+import { fmtRub } from '../../design/components/money/MoneyFigure.jsx';
+import { AnimatedMoney } from '../common/AnimatedMoney.jsx';
+import { CtaGlow } from '../common/CtaGlow.jsx';
 import { scrollToId } from './Section.jsx';
 import { reachGoal } from '../../lib/analytics.js';
 
@@ -60,16 +62,22 @@ export function LossCalculator() {
       >
         <div className="lp-overline" style={{ color: 'var(--urgent-text)' }}>Мимо кассы в месяц</div>
         <div style={{ marginTop: 'var(--sp-2)' }}>
-          <MoneyFigure value={loss} size="lg" sub="уходит к соседям, пока звонки остаются без ответа" />
+          <AnimatedMoney value={loss} size="lg" color="default" sub="уходит к соседям, пока звонки остаются без ответа" />
         </div>
         <p className="tnum" style={{ margin: 'var(--sp-3) 0 0', fontSize: 'var(--fs-body)', color: 'var(--text-secondary)', fontFeatureSettings: "'tnum' 1" }}>
           {calls} звонков × {missed}% × 30 дней × 0,4 × {fmtRub(check)} ₽
         </p>
+        {/* Полоска-заполнение: перезапуск (scaleX 0→1) на каждом пересчёте */}
+        <div className="lp-progress" style={{ marginTop: 'var(--sp-3)' }} aria-hidden="true">
+          <div className="lp-progress__bar" key={loss} />
+        </div>
       </div>
 
-      <Button variant="primary" size="lg" full icon="return" style={{ marginTop: 'var(--sp-5)' }} onClick={() => scrollToId('lead')}>
-        Вернуть их — подключить клинику
-      </Button>
+      <CtaGlow full style={{ marginTop: 'var(--sp-5)' }}>
+        <Button variant="primary" size="lg" full icon="return" onClick={() => scrollToId('lead')}>
+          Вернуть их — подключить клинику
+        </Button>
+      </CtaGlow>
     </div>
   );
 }

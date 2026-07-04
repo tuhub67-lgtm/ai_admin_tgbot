@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Seo } from '../components/common/Seo.jsx';
+import { initReveal } from '../components/common/reveal.js';
 import { Header } from '../components/landing/Header.jsx';
 import { Hero } from '../components/landing/Hero.jsx';
 import { Section } from '../components/landing/Section.jsx';
@@ -14,6 +15,8 @@ import { Faq } from '../components/landing/Faq.jsx';
 import { Footer } from '../components/landing/Footer.jsx';
 
 export default function Landing() {
+  // Scroll-reveal: JS-фолбэк только там, где нет CSS animation-timeline.
+  useEffect(() => { initReveal(); }, []);
   return (
     <>
       <Seo

@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '../../design/components/core/Icon.jsx';
 import { Button } from '../../design/components/controls/Button.jsx';
 import { fmtRub } from '../../design/components/money/MoneyFigure.jsx';
+import { CtaGlow } from '../common/CtaGlow.jsx';
 import { Section, scrollToId } from './Section.jsx';
 
 const feats = [
@@ -61,9 +62,11 @@ export function Pricing() {
             </div>
             <FeatureList />
             <div style={{ flex: 1 }} />
-            <Button variant="primary" size="lg" full style={{ marginTop: 'var(--sp-6)' }} onClick={() => scrollToId('lead')}>
-              Подключить клинику
-            </Button>
+            <CtaGlow full style={{ marginTop: 'var(--sp-6)' }}>
+              <Button variant="primary" size="lg" full onClick={() => scrollToId('lead')}>
+                Подключить клинику
+              </Button>
+            </CtaGlow>
           </div>
         </div>
 
@@ -86,9 +89,11 @@ export function Pricing() {
             </div>
             <FeatureList />
             <div style={{ flex: 1 }} />
-            <Button variant="secondary" size="lg" full style={{ marginTop: 'var(--sp-6)' }} onClick={() => scrollToId('lead')}>
-              Подключить клинику
-            </Button>
+            <CtaGlow full style={{ marginTop: 'var(--sp-6)' }}>
+              <Button variant="secondary" size="lg" full onClick={() => scrollToId('lead')}>
+                Подключить клинику
+              </Button>
+            </CtaGlow>
           </div>
         </div>
       </div>

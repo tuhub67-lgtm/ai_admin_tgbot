@@ -7,9 +7,30 @@ import { LeadCard } from '../../design/components/leads/LeadCard.jsx';
 import { EmptyState } from '../../design/components/feedback/EmptyState.jsx';
 import { Icon } from '../../design/components/core/Icon.jsx';
 import { fmtRub } from '../../design/components/money/MoneyFigure.jsx';
+import { useCountUp } from '../../components/common/AnimatedMoney.jsx';
 
 /* «Сегодня» — лента обращений. Срочные закреплены сверху с красным маркером.
    Чипы-фильтры по статусу. Тап по карточке открывает карточку пациента. */
+
+// Сумма «возвращено» в шапке ленты — count-up + бамп при обновлении (тот же стиль 20px).
+function RecoveredSum({ value }) {
+  const { display, bumped, ref, onAnimationEnd } = useCountUp(value);
+  return (
+    <span
+      ref={ref}
+      className={`tnum lp-money${bumped ? ' is-bumped' : ''}`}
+      role="img"
+      aria-label={`возвращено ${fmtRub(value)} ₽`}
+      onAnimationEnd={onAnimationEnd}
+      style={{
+        fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700,
+        color: 'var(--text-gold)', fontFeatureSettings: "'tnum' 1", whiteSpace: 'nowrap',
+      }}
+    >
+      <span aria-hidden="true">возвращено {fmtRub(display)}&nbsp;₽</span>
+    </span>
+  );
+}
 
 const FILTERS = [
   { key: 'all', label: 'Все', match: () => true },
@@ -112,15 +133,7 @@ export default function Today() {
             Подхвачено&nbsp;<strong>{total}</strong>
           </span>
           {recovered > 0 ? (
-            <span
-              className="tnum"
-              style={{
-                fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700,
-                color: 'var(--text-gold)', fontFeatureSettings: "'tnum' 1", whiteSpace: 'nowrap',
-              }}
-            >
-              возвращено {fmtRub(recovered)}&nbsp;₽
-            </span>
+            <RecoveredSum value={recovered} />
           ) : null}
         </div>
       ) : null}

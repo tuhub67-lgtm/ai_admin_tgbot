@@ -7,6 +7,7 @@ import './styles/landing.css'
 // локальные @font-face перекрыли Google-@import (в РФ он часто недоступен →
 // иначе интерфейс падает на системный шрифт).
 import './styles/fonts.css'
+import './styles/animations.css'
 import App from './App.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(

@@ -3,7 +3,7 @@ import React from 'react';
 /* Обёртка секции лендинга: фон + вертикальные отступы + контейнер по центру. */
 export function Section({ id, bg, tight, containerStyle, children, style }) {
   return (
-    <section id={id} style={{ background: bg || 'var(--bg)', ...style }}>
+    <section id={id} className="lp-reveal" style={{ background: bg || 'var(--bg)', ...style }}>
       <div
         className={`lp-container lp-section${tight ? ' lp-section--tight' : ''}`}
         style={containerStyle}

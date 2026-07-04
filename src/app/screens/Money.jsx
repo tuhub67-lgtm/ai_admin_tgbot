@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { api, ApiError } from '../lib/api.js';
 import { weekdayShort, fmtWhen } from '../lib/format.js';
 import { MoneyFigure, fmtRub } from '../../design/components/money/MoneyFigure.jsx';
+import { AnimatedMoney } from '../../components/common/AnimatedMoney.jsx';
 import { RevenueBars } from '../../design/components/money/RevenueBars.jsx';
 import { Icon } from '../../design/components/core/Icon.jsx';
 import { EmptyState } from '../../design/components/feedback/EmptyState.jsx';
@@ -70,7 +71,7 @@ export default function Money() {
       {/* Денежный герой — всегда тёмный, как эталон экрана «Деньги» */}
       <div data-theme="dark" style={{ borderRadius: 'var(--r-card)' }}>
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-card)', padding: '20px 16px 16px', boxShadow: 'var(--shadow-card)' }}>
-          <MoneyFigure value={total} size="xl" mobile animate color="gold" label="Возвращено за неделю" />
+          <AnimatedMoney value={total} size="xl" mobile color="gold" label="Возвращено за неделю" particles />
           {bars.length ? (
             <div style={{ marginTop: 18 }}>
               <RevenueBars data={bars} highlightIndex={highlightIndex} height={96} />
