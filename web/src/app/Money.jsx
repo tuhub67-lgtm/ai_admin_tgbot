@@ -62,8 +62,7 @@ export default function Money() {
             size="xl"
             color="gold"
             animate
-            label="Пациенты вернулись"
-            sub={money.leads ? `${money.leads} ${plural(money.leads, 'запись', 'записи', 'записей')} за неделю` : undefined}
+            sub={money.leads ? `${money.leads} ${plural(money.leads, 'запись', 'записи', 'записей')} вернулись за неделю` : undefined}
           />
         </div>
       </Reveal>
