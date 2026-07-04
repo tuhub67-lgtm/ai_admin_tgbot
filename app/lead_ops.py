@@ -11,14 +11,21 @@
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
+
 from loguru import logger
 
 from app.config import Clinic
 from app.db import Database
 from app.leads import GroupNotifier
+from app.utils import now_msk
 
 VALID_STATUSES = {"new", "pending", "confirmed", "booked", "callback", "lost"}
 _RECOVERED_STATUSES = {"confirmed", "booked"}
+
+# Батчинг cha-ching: если за это окно уже была запись — шлём компактную строку
+# с нарастающим итогом, а не полный текст (чтобы не спамить Штаб в час пик).
+BATCH_WINDOW_SECONDS = 15 * 60
 
 
 def cha_ching_text(clinic: Clinic, lead: dict, *, first_ever: bool) -> str:
@@ -43,6 +50,8 @@ class LeadOps:
         self.db = db
         self.clinics = clinics
         self.notifier = notifier
+        # clinic_slug -> deque[(timestamp, est_sum)] за окно батчинга
+        self._recent: dict[str, deque] = defaultdict(deque)
 
     async def set_status(self, clinic_slug: str, lead_id: int, status: str) -> dict | None:
         """Меняет статус лида в рамках клиники. Возвращает обновлённый лид или None."""
@@ -73,16 +82,35 @@ class LeadOps:
             return  # уже уведомляли — идемпотентность, второй брони/сообщения нет
         clinic = self.clinics[clinic_slug]
         lead = await self.db.get_lead(lead_id, clinic_slug)
-        # cha-ching в Штаб — отдельным сообщением от карточки
-        confirmed_count = await self.db._scalar(
-            "SELECT COUNT(*) FROM leads WHERE clinic_slug = ? AND patient_notified = 1"
-            " AND status IN ('confirmed', 'booked')",
-            (clinic_slug,),
-        )
-        try:
-            await self.notifier.send_group_message(
-                clinic.tg_group_id, cha_ching_text(clinic, lead, first_ever=confirmed_count <= 1)
+
+        # Батчинг: сколько записей уже было за последние 15 минут у этой клиники.
+        now = now_msk().timestamp()
+        rec = self._recent[clinic_slug]
+        while rec and now - rec[0][0] > BATCH_WINDOW_SECONDS:
+            rec.popleft()
+        in_window = len(rec)
+        rub = lead.get("est_sum") or clinic.lead_cost
+        rec.append((now, rub))
+
+        if in_window == 0:
+            # Первая за окно — полноценный cha-ching (первая за всё время — тёплый текст).
+            confirmed_count = await self.db._scalar(
+                "SELECT COUNT(*) FROM leads WHERE clinic_slug = ? AND patient_notified = 1"
+                " AND status IN ('confirmed', 'booked')",
+                (clinic_slug,),
             )
+            text = cha_ching_text(clinic, lead, first_ever=confirmed_count <= 1)
+        else:
+            # 2+ за 15 минут — компактная строка с нарастающим итогом (батч).
+            total = sum(s for _, s in rec)
+            name = lead.get("name") or "Пациент"
+            service = lead.get("service") or "приём"
+            text = (
+                f"✅ Ещё запись: {name} — {service}.\n"
+                f"За 15 минут: {len(rec)} записей, вернули ≈ {total} ₽"
+            )
+        try:
+            await self.notifier.send_group_message(clinic.tg_group_id, text)
         except Exception as e:
             logger.error("cha-ching не доставлен (лид #{}): {}", lead_id, e)
         logger.info(

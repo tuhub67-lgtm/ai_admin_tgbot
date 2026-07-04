@@ -88,7 +88,12 @@ def _clear_session_cookies(response: Response, settings) -> None:
 
 def _lead_ops(request: Request) -> LeadOps:
     s = request.app.state
-    return LeadOps(s.db, s.clinics, s.notifier)
+    # Единый на приложение экземпляр (общий со Штаб-ботом) — чтобы батчинг cha-ching
+    # держал состояние между запросами. В тестах создаётся на лету.
+    ops = getattr(s, "lead_ops", None)
+    if ops is None:
+        ops = LeadOps(s.db, s.clinics, s.notifier)
+    return ops
 
 
 # --- Авторизация ----------------------------------------------------------

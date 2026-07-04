@@ -32,6 +32,7 @@ from app.core import prompts
 from app.core.llm_base import BaseLLM
 from app.db import Database
 from app.leads import LeadService
+from app.redaction import anonymize_history
 from app.utils import looks_like_phone_attempt, normalize_phone, now_msk
 
 # Поля заявки в порядке заполнения; шаг = первое незаполненное поле.
@@ -110,6 +111,14 @@ _LLM_URGENCY = {"planned", "pain"}
 
 # После этого запаса сообщений в закрытой сессии бот замолкает совсем.
 _CLOSED_GRACE = 5
+
+
+def _looks_like_name(text: str) -> bool:
+    """Ответ на «как вас зовут» похож на имя (собираем детерминированно, без LLM)."""
+    t = text.strip()
+    if not t or len(t) > 40 or "?" in t:
+        return False
+    return any(ch.isalpha() for ch in t)
 
 
 def detect_urgent(text: str) -> bool:
@@ -292,8 +301,23 @@ class DialogueEngine:
             result.replies = replies.replies
             return result
 
-        # 5. Валидация телефона в коде — LLM не доверяем.
         step = session["state"]
+
+        # 5a. Имя собираем ДЕТЕРМИНИРОВАННО (не через LLM): ФИО не должно уходить
+        #     в GigaChat (соглашение о ПДн). Ответ на «как вас зовут» = имя.
+        if step == "NAME" and _looks_like_name(text):
+            fields["name"] = text.strip()
+            step = self._next_step(fields)
+            await self.db.update_session(session_id, state=step, fields=fields)
+            # Локальную сессию тоже обновляем — чтобы обезличивание истории для LLM
+            # уже знало имя и вырезало его из свежесобранной реплики.
+            session = {**session, "state": step, "fields_json": json.dumps(fields, ensure_ascii=False)}
+            if step == "CONFIRM":
+                return await self._confirm(session, clinic, fields)
+            reply = await self._llm_reply(session, clinic, step)
+            return await self._reply(session_id, [reply])
+
+        # 5b. Валидация телефона в коде — LLM не доверяем (и номер в модель не шлём).
         if step == "PHONE":
             phone = normalize_phone(text)
             if phone:
@@ -360,12 +384,18 @@ class DialogueEngine:
 
     # --- LLM ------------------------------------------------------------------
 
-    async def _llm_turn(
-        self, session: dict, clinic: Clinic, fields: dict, step: str
-    ) -> DialogueResult:
+    async def _history_for_llm(self, session: dict, fields: dict) -> list[dict]:
+        """История для GigaChat — ОБЕЗЛИЧЕННАЯ: телефон/имя/диагнозы вырезаны.
+        ФИО и номер остаются только в локальной SQLite, в модель не уходят."""
         history = await self.db.recent_messages(
             session["id"], self.settings.history_window
         )
+        return anonymize_history(history, fields.get("name"))
+
+    async def _llm_turn(
+        self, session: dict, clinic: Clinic, fields: dict, step: str
+    ) -> DialogueResult:
+        history = await self._history_for_llm(session, fields)
         try:
             result = await self.llm.generate(
                 system=prompts.build_system_prompt(clinic, step),
@@ -396,9 +426,7 @@ class DialogueEngine:
         return await self._reply(session["id"], [reply])
 
     async def _llm_reply(self, session: dict, clinic: Clinic, goal: str) -> str:
-        history = await self.db.recent_messages(
-            session["id"], self.settings.history_window
-        )
+        history = await self._history_for_llm(session, self._session_fields(session))
         try:
             result = await self.llm.generate(
                 system=prompts.build_system_prompt(clinic, goal),

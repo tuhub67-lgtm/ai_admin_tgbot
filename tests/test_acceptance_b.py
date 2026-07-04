@@ -82,6 +82,48 @@ async def test_slots_generated_within_hours(clinics):
         assert s.weekday() in sched.days
 
 
+# --- ПДн: имя/телефон НЕ уходят в GigaChat, но хранятся локально --------------
+
+class _SpyLLM:
+    """Записывает, что реально ушло бы в GigaChat (system + история)."""
+
+    def __init__(self):
+        from tests.conftest import FakeLLM
+        self.inner = FakeLLM()
+        self.seen = []
+
+    async def generate(self, *, system, history, extract, max_tokens):
+        self.seen.append(system)
+        self.seen.extend(m["content"] for m in history)
+        return await self.inner.generate(
+            system=system, history=history, extract=extract, max_tokens=max_tokens
+        )
+
+    def all_text(self):
+        return "\n".join(self.seen)
+
+
+async def test_no_patient_pii_sent_to_llm(db, clinics, leads, settings, session):
+    from app.core.dialogue import DialogueEngine
+
+    spy = _SpyLLM()
+    engine = DialogueEngine(db, spy, clinics, leads, settings)
+    await engine.start_session(session)
+    for t in ("Хочу профгигиену", "планово", "Ирина", "+7 917 123-45-67", "завтра утром"):
+        await talk(engine, db, session, t)
+
+    seen = spy.all_text()
+    # В модель НЕ ушли ни имя, ни номер (ни в каком виде)
+    assert "Ирина" not in seen
+    assert "9171234567" not in seen
+    assert "+79171234567" not in seen
+
+    # А в локальной БД ПДн есть — они нужны клинике
+    lead = await db._fetchone("SELECT * FROM leads")
+    assert lead["name"] == "Ирина"
+    assert lead["phone"] == "+79171234567"
+
+
 # --- 15. Редактирование диагнозов до записи (карточка + transcript) ---------
 
 async def test_redaction_hides_diagnosis(engine, db, session):
@@ -120,6 +162,23 @@ async def test_manual_pending_confirm_idempotent(engine, db, session, notifier, 
     fresh = await db.get_lead(lead["id"], "demo-dent")
     assert fresh["patient_notified"] == 1
     assert "Вернули ≈" in notifier.sent[-1][1]
+
+
+# --- cha-ching: батчинг 2+ записей за 15 минут -----------------------------
+
+async def test_cha_ching_batching(db, clinics, notifier):
+    ops = LeadOps(db, clinics, notifier)
+    l1 = await _make_lead(db, est_sum=4500, phone="+79170000011")
+    l2 = await _make_lead(db, est_sum=5900, phone="+79170000012")
+
+    await ops.confirm("demo-dent", l1)
+    first = notifier.sent[-1][1]
+    assert "≈ 4500 ₽" in first                       # первая — полноценный cha-ching
+
+    await ops.confirm("demo-dent", l2)               # часы заморожены → в том же окне
+    second = notifier.sent[-1][1]
+    assert "За 15 минут: 2 записей" in second         # вторая — компактный батч
+    assert "10400" in second                          # нарастающий итог 4500+5900
 
 
 # --- 20. Требование скидки → Анна не обещает, переадресует, карточка помечена

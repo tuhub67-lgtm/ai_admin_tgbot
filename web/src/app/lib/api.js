@@ -30,8 +30,9 @@ export class ApiError extends Error {
   }
 }
 
-let mockActive = import.meta.env.VITE_API_MOCK === '1';
-let backendSeen = false;
+// Мок включается ТОЛЬКО явным флагом сборки (демо-превью без бэкенда).
+// В реальной сборке кабинет всегда ходит в живой /api — данные из БД, ошибки не маскируем.
+const mockActive = import.meta.env.VITE_API_MOCK === '1';
 
 async function request(path, { method = 'GET', body = null } = {}) {
   if (mockActive) return mockHandle(path, method, body);
@@ -48,30 +49,20 @@ async function request(path, { method = 'GET', body = null } = {}) {
     res = await fetch(path, {
       method,
       headers,
-      credentials: 'include', // браузер приложит cookie сессии
+      credentials: 'include', // браузер приложит HttpOnly cookie сессии
       body: body != null ? JSON.stringify(body) : undefined,
     });
   } catch {
-    if (!backendSeen) { mockActive = true; return mockHandle(path, method, body); }
     throw new ApiError(0, 'network');
   }
 
   if (res.status === 401) {
-    backendSeen = true;
     signalAuth(); // сессия истекла/отсутствует → Layout покажет вход
     throw new ApiError(401, 'unauthorized');
   }
-  if (!res.ok) {
-    if (!backendSeen) { mockActive = true; return mockHandle(path, method, body); }
-    throw new ApiError(res.status, `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
 
-  const ct = res.headers.get('content-type') || '';
   const text = await res.text();
-  if (!ct.includes('json')) {
-    if (!backendSeen) { mockActive = true; return mockHandle(path, method, body); }
-  }
-  backendSeen = true;
   return text ? JSON.parse(text) : {};
 }
 

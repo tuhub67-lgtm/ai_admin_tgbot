@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../design/components/controls/Button.jsx';
 import { Icon } from '../design/components/core/Icon.jsx';
@@ -12,15 +12,18 @@ export default function Enter() {
   const navigate = useNavigate();
   const [state, setState] = useState('loading'); // loading | error
   const token = params.get('token');
+  const started = useRef(false);
 
   useEffect(() => {
-    let alive = true;
-    if (!token) { setState('error'); return undefined; }
+    // Magic-токен одноразовый: гасим ровно один раз, даже под StrictMode
+    // (двойной вызов effect в dev иначе «сжёг» бы токен вторым verify).
+    if (started.current) return;
+    started.current = true;
+    if (!token) { setState('error'); return; }
     // verify выставляет HttpOnly-cookie сессии на сервере; токен в JS не попадает.
     api.verify(token)
-      .then(() => { if (alive) navigate('/app', { replace: true }); })
-      .catch(() => { if (alive) setState('error'); });
-    return () => { alive = false; };
+      .then(() => navigate('/app', { replace: true }))
+      .catch(() => setState('error'));
   }, [token, navigate]);
 
   return (

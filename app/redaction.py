@@ -39,3 +39,38 @@ def redact(text: str) -> str:
 
 def contains_sensitive(text: str) -> bool:
     return bool(_RE.search(text or ""))
+
+
+# --- Обезличивание для отправки в GigaChat (соглашение: ПДн не передаём) -----
+
+# Телефоноподобные последовательности (≥7 цифр с разделителями) → «[телефон]».
+_LLM_PHONE_RE = re.compile(r"(?:\+?[78][\s\-()]*)?(?:\d[\s\-()]{0,2}){6,}\d")
+
+# Явные представления имени: «меня зовут X», «это X», «я X» — лучший-эффорт.
+_NAME_INTRO_RE = re.compile(
+    r"(меня\s+зовут|мо[её]\s+имя|это|я)\s+([А-ЯЁ][а-яё]+)", re.IGNORECASE
+)
+
+
+def anonymize_for_llm(text: str, name: str | None = None) -> str:
+    """Готовит реплику к отправке в GigaChat: вырезает ПДн (телефон, имя,
+    диагнозы). ФИО/номер остаются ТОЛЬКО в локальной SQLite, в модель не уходят.
+
+    - диагнозы/болезни → «[скрыто]» (как при хранении, идемпотентно);
+    - любые телефоноподобные последовательности → «[телефон]»;
+    - известное имя пациента (по границе слова) → «пациент»;
+    - конструкции «меня зовут X» → «меня зовут пациент» (на случай раннего имени).
+    """
+    if not text:
+        return text
+    t = redact(text)
+    t = _LLM_PHONE_RE.sub("[телефон]", t)
+    if name:
+        t = re.sub(rf"\b{re.escape(name)}\b", "пациент", t, flags=re.IGNORECASE)
+    t = _NAME_INTRO_RE.sub(lambda m: f"{m.group(1)} пациент", t)
+    return t
+
+
+def anonymize_history(history: list[dict], name: str | None = None) -> list[dict]:
+    """Обезличивает все реплики истории перед передачей в GigaChat."""
+    return [{**m, "content": anonymize_for_llm(m.get("content", ""), name)} for m in history]
