@@ -27,6 +27,12 @@ export function CountUp({
   const raf = useRef(0);
   const started = useRef(false);
 
+  // reduce-motion: показываем финальную сумму сразу, не дожидаясь вьюпорта (a11y + корректность).
+  useEffect(() => {
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) setShown(value);
+  }, [value]);
+
   useEffect(() => {
     if (!inView) return;
     const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
