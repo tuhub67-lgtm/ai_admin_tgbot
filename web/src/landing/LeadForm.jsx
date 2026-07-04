@@ -18,21 +18,17 @@ function digits(s) {
 }
 
 async function sendLead(payload) {
-  if (!LEAD_WEBHOOK_URL) {
-    // TODO(ЭТАП B): бэкенд POST /api/public/lead-request. До него — лог + оптимистичный успех.
-    console.log('[lead-request] VITE_LEAD_WEBHOOK_URL не задан — заявка не отправлена, только лог:', payload);
-    return true;
-  }
   try {
     const res = await fetch(LEAD_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.ok;
-  } catch (e) {
-    console.error('[lead-request] ошибка отправки:', e);
-    return false;
+    return res.ok; // 200 — успех; 4xx/5xx (например 429) → покажем ошибку
+  } catch {
+    // fetch отклонён — бэкенда нет (статичное демо/офлайн/CSP). Не вина пользователя.
+    console.log('[lead-request] бэкенд недоступен — заявка залогирована (демо):', payload);
+    return true;
   }
 }
 

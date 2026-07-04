@@ -6,6 +6,18 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   base: '/',
+  server: {
+    port: 5173,
+    // Строго localhost (не 127.0.0.1): бэкенд ставит host-only cookie сессии,
+    // и обращаться к фронту нужно с того же хоста, иначе cookie не сохранится.
+    host: 'localhost',
+    proxy: {
+      // Кабинет/витрина ходят на относительный /api → проксируем в backend :8000,
+      // сохраняя HttpOnly cookie-сессию без CORS (один origin для браузера).
+      // Роуты бэкенда уже /api — rewrite не нужен; Set-Cookie не переписываем.
+      '/api': { target: 'http://localhost:8000', changeOrigin: true },
+    },
+  },
   build: {
     outDir: 'dist',
     // Ассеты дизайн-пака (логотип-плашки) крупные — не инлайнить в base64.

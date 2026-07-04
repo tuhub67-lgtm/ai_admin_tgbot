@@ -9,8 +9,9 @@ export const BOT_LOGIN_URL = import.meta.env.VITE_BOT_LOGIN_URL || 'https://t.me
 // RuStore — страница приложения (вторичный CTA). Пусто → якорь-заглушка.
 export const RUSTORE_URL = import.meta.env.VITE_RUSTORE_URL || '#rustore';
 
-// Заявка с витрины. Пусто → успех + лог + TODO (backend /api/public/lead-request появится в ЭТАПЕ B).
-export const LEAD_WEBHOOK_URL = import.meta.env.VITE_LEAD_WEBHOOK_URL || '';
+// Заявка с витрины → относительный /api того же origin (dev: Vite-прокси на :8000,
+// прод: Caddy). Абсолютный URL можно переопределить env, но обычно не нужен.
+export const LEAD_WEBHOOK_URL = import.meta.env.VITE_LEAD_WEBHOOK_URL || '/api/public/lead-request';
 
 // Контакты в футере (плейсхолдеры).
 export const CONTACT_EMAIL = import.meta.env.VITE_CONTACT_EMAIL || 'hello@podhvat.ru';

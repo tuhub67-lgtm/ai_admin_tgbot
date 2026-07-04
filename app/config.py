@@ -165,6 +165,9 @@ class Settings(BaseModel):
 
     # Кабинет: секрет для подписи JWT-сессий (длинная случайная строка на деплое)
     jwt_secret: str = "dev-insecure-change-me"
+    # Флаг Secure у cookie сессии: в проде (HTTPS) — True; в локальной dev-разработке
+    # по http его выключают (COOKIE_SECURE=false), иначе браузер не сохранит cookie.
+    cookie_secure: bool = True
 
     # Лимиты диалога
     max_messages_per_session: int = 30
@@ -198,6 +201,7 @@ def load_settings() -> Settings:
         db_path=_env("DB_PATH", "data/podkhvat.db"),
         log_level=_env("LOG_LEVEL", "INFO"),
         jwt_secret=_env("JWT_SECRET", "dev-insecure-change-me"),
+        cookie_secure=_env("COOKIE_SECURE", "true").lower() != "false",
         sms_daily_cap_per_clinic=int(_env("SMS_DAILY_CAP_PER_CLINIC", "200")),
     )
 

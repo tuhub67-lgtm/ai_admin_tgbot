@@ -64,7 +64,9 @@ def _require_csrf(request: Request) -> str:
 
 def _cookie_kwargs(settings) -> dict:
     return {
-        "secure": True,        # только по HTTPS (в проде — Caddy TLS)
+        # Secure=True в проде (Caddy TLS); в dev по http — COOKIE_SECURE=false,
+        # иначе браузер не сохранит cookie на http://localhost.
+        "secure": getattr(settings, "cookie_secure", True),
         "samesite": "lax",     # cross-site POST не пришлёт cookie → защита от CSRF
         "path": "/",
     }
