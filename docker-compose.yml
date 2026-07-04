@@ -12,7 +12,10 @@ services:
       - "8000"
 
   caddy:
-    image: caddy:2-alpine
+    # Образ собирает витрину+кабинет (Vite) и раздаёт SPA + проксирует API/вебхуки.
+    build:
+      context: .
+      dockerfile: web/Dockerfile
     restart: unless-stopped
     ports:
       - "80:80"
@@ -20,12 +23,20 @@ services:
     environment:
       DOMAIN: ${DOMAIN:-localhost}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./static:/srv/static:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - app
+
+  # Ежедневный бэкап SQLite в ./backups (03:00 контейнерного времени UTC — см. скрипт).
+  backup:
+    image: alpine:3.20
+    restart: unless-stopped
+    volumes:
+      - ./data:/data:ro
+      - ./backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache sqlite >/dev/null 2>&1; while true; do /bin/sh /backup.sh; sleep 86400; done"]
 
 volumes:
   caddy_data:
