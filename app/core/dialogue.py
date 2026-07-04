@@ -33,7 +33,11 @@ from app.core.llm_base import BaseLLM
 from app.db import Database
 from app.leads import LeadService
 from app.redaction import anonymize_history
+from app.scheduler import slots_text
 from app.utils import looks_like_phone_attempt, normalize_phone, now_msk
+
+# На этих шагах Анне подмешиваем конкретные свободные окна (scheduler_lite).
+_SLOT_STEPS = {"URGENCY", "TIME", "CONFIRM", "CONFIRM_NIGHT"}
 
 # Поля заявки в порядке заполнения; шаг = первое незаполненное поле.
 FIELD_ORDER = [
@@ -384,6 +388,13 @@ class DialogueEngine:
 
     # --- LLM ------------------------------------------------------------------
 
+    def _build_system(self, clinic: Clinic, step: str) -> str:
+        """Системный промпт шага + свободные окна (для TIME/URGENCY предлагаем слоты)."""
+        slots = None
+        if step in _SLOT_STEPS:
+            slots = slots_text(self._schedules[clinic.slug], now_msk())
+        return prompts.build_system_prompt(clinic, step, slots=slots)
+
     async def _history_for_llm(self, session: dict, fields: dict) -> list[dict]:
         """История для GigaChat — ОБЕЗЛИЧЕННАЯ: телефон/имя/диагнозы вырезаны.
         ФИО и номер остаются только в локальной SQLite, в модель не уходят."""
@@ -398,7 +409,7 @@ class DialogueEngine:
         history = await self._history_for_llm(session, fields)
         try:
             result = await self.llm.generate(
-                system=prompts.build_system_prompt(clinic, step),
+                system=self._build_system(clinic, step),
                 history=history,
                 extract=True,
                 max_tokens=self.settings.max_response_tokens,
@@ -429,7 +440,7 @@ class DialogueEngine:
         history = await self._history_for_llm(session, self._session_fields(session))
         try:
             result = await self.llm.generate(
-                system=prompts.build_system_prompt(clinic, goal),
+                system=self._build_system(clinic, goal),
                 history=history,
                 extract=False,
                 max_tokens=self.settings.max_response_tokens,

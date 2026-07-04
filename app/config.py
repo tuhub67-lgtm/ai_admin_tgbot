@@ -47,6 +47,9 @@ class Clinic(BaseModel):
     # Персональный токен вебхука телефонии (в URL): резолвит клинику без опоры
     # только на набранный номер. Если задан — предпочтительный способ авторизации.
     clinic_token: str | None = None
+    # Telegram-id владельцев, кому бот выдаёт magic-link в кабинет этой клиники.
+    # Основатель (Settings.owner_tg_id) имеет доступ ко всем клиникам сверх этого.
+    owner_tg_ids: list[int] = Field(default_factory=list)
 
     @field_validator("slug")
     @classmethod

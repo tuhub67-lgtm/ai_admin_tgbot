@@ -1,8 +1,10 @@
-"""Passwordless-вход в кабинет: magic-link через Telegram-бот + JWT-сессия.
+"""Passwordless-вход в кабинет: magic-link через Telegram-бот + JWT-сессия в cookie.
 
-Поток: в боте /login → одноразовая ссылка (15 мин) на кабинет с токеном →
-GET /api/auth/verify гасит токен и выдаёт JWT (в нём clinic_slug). Кабинет
-кладёт JWT в localStorage и шлёт как `Authorization: Bearer <jwt>`.
+Поток: в боте /login (или кнопка «Войти» → ?start=login) бот проверяет, что
+пользователь — владелец клиники, и присылает ему одноразовую ссылку (15 мин).
+GET /api/auth/verify гасит токен и выставляет сессию в HttpOnly+Secure+SameSite=Lax
+cookie (pk_session) плюс читаемую CSRF-cookie (pk_csrf). Токен сессии в теле ответа
+и в localStorage НЕ хранится — JS его не видит (защита от XSS-кражи).
 
 JWT — минимальный HS256 на stdlib (без внешних зависимостей). Секрет — из
 окружения (JWT_SECRET), длинная случайная строка при деплое.
@@ -37,6 +39,16 @@ def _b64url_decode(s: str) -> bytes:
 
 
 # --- Magic-link -----------------------------------------------------------
+
+
+def authorized_clinics(user_id: int, clinics: dict, owner_tg_id: int | None) -> list:
+    """Клиники, к кабинету которых у этого Telegram-пользователя есть доступ.
+    Основатель (owner_tg_id) — ко всем; остальные — только к своим (owner_tg_ids)."""
+    if not user_id:
+        return []
+    if owner_tg_id and user_id == owner_tg_id:
+        return list(clinics.values())
+    return [c for c in clinics.values() if user_id in getattr(c, "owner_tg_ids", [])]
 
 
 async def issue_magic_token(db: Database, clinic_slug: str, tg_user_id: int | None) -> str:

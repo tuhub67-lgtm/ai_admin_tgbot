@@ -84,7 +84,7 @@ FALLBACK_REPLIES = {
 }
 
 
-def build_system_prompt(clinic: Clinic, step: str) -> str:
+def build_system_prompt(clinic: Clinic, step: str, slots: str | None = None) -> str:
     base = ANNA_SYSTEM_PROMPT.format(
         name=clinic.name,
         city=clinic.city,
@@ -97,6 +97,11 @@ def build_system_prompt(clinic: Clinic, step: str) -> str:
     goal = STEP_GOALS.get(step)
     if goal:
         base += f"\n\nТЕКУЩАЯ ЦЕЛЬ ШАГА: {goal}"
+    if slots:
+        # scheduler_lite: конкретные свободные окна, которые Анна предлагает пациенту.
+        base += (
+            f"\n\nСВОБОДНЫЕ ОКНА (предложи пациенту 2–3 на выбор, не выдумывай других): {slots}"
+        )
     return base
 
 

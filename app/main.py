@@ -21,6 +21,9 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from app.api import router as cabinet_router
+from app.channels.dispatcher import Dispatcher as ChannelDispatcher
+from app.channels.max_channel import MaxChannel
+from app.channels.sms_channel import SmsChannel
 from app.channels.telegram import TelegramNotifier, create_router
 from app.channels.widget_api import router as widget_router
 from app.config import load_clinics, load_settings
@@ -71,6 +74,8 @@ async def lifespan(app: FastAPI):
     lead_ops = LeadOps(db, clinics, notifier)
     engine = DialogueEngine(db, llm, clinics, leads, settings)
     sms = SmsAeroClient(settings.smsaero_email, settings.smsaero_api_key)
+    # Каскад доставки MAX → SMS для возврата пропущенных звонков.
+    dispatcher = ChannelDispatcher(db, [MaxChannel(), SmsChannel(sms)], notifier)
 
     bot_username = None
     try:
@@ -88,6 +93,7 @@ async def lifespan(app: FastAPI):
     app.state.bot = bot
     app.state.bot_username = bot_username
     app.state.lead_ops = lead_ops
+    app.state.dispatcher = dispatcher
 
     dp = Dispatcher()
     dp.include_router(create_router(engine, db, clinics, settings, lead_ops))

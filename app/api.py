@@ -16,7 +16,6 @@ from app.auth import (
     SESSION_COOKIE,
     consume_magic_token,
     create_jwt,
-    issue_magic_token,
     new_csrf,
     session_payload,
 )
@@ -99,23 +98,10 @@ def _lead_ops(request: Request) -> LeadOps:
 # --- Авторизация ----------------------------------------------------------
 
 
-class MagicLinkReq(BaseModel):
-    clinic_slug: str
-    tg_user_id: int | None = None
-
-
-@router.post("/auth/magic-link")
-async def auth_magic_link(request: Request, body: MagicLinkReq):
-    """Выдать одноразовую ссылку входа. Self-service регистрации нет: клиника
-    должна существовать (создаётся оператором через scripts/add_clinic.py).
-    Rate-limit защищает от перебора ссылок."""
-    if not _rl(request, "magic_link_rl", 5, 300).allow(f"{client_ip(request)}:{body.clinic_slug}"):
-        raise HTTPException(status_code=429, detail="слишком часто — попробуйте позже")
-    if body.clinic_slug not in request.app.state.clinics:
-        raise HTTPException(status_code=404, detail="клиника не найдена")
-    token = await issue_magic_token(request.app.state.db, body.clinic_slug, body.tg_user_id)
-    base = request.app.state.settings.public_base_url
-    return {"link": f"{base}/app/enter?token={token}", "token": token}
+# Выдача magic-ссылки — ТОЛЬКО через Telegram-бот (/login), где пользователь уже
+# аутентифицирован Telegram и проверяется на владение клиникой (см. channels/telegram.py).
+# Публичного HTTP-эндпоинта для генерации токена нет — иначе любой, кто знает slug
+# клиники, мог бы выпустить себе сессию.
 
 
 @router.get("/auth/verify")

@@ -24,6 +24,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 
+from app.channels.dispatcher import Dispatcher
+from app.channels.max_channel import MaxChannel
+from app.channels.sms_channel import SmsChannel
 from app.config import Clinic, clinic_by_novofon_number, clinic_by_token
 from app.utils import mask_phone, normalize_phone, now_msk
 
@@ -106,6 +109,16 @@ def build_sms_text(clinic: Clinic, deep_link: str) -> str:
         f"Напишите нам, и администратор свяжется: {deep_link} "
         f"Или перезвоните: {clinic.phone_display}"
     )
+
+
+def _dispatcher(state) -> Dispatcher:
+    """Каскад MAX→SMS. В проде создаётся на старте (app.state.dispatcher); здесь
+    ленивый фолбэк, чтобы тесты без явной обвязки тоже шли через каскад.
+    notifier=None: уведомление в группу отправляет сам обработчик вебхука."""
+    disp = getattr(state, "dispatcher", None)
+    if disp is None:
+        disp = Dispatcher(state.db, [MaxChannel(), SmsChannel(state.sms)], notifier=None)
+    return disp
 
 
 async def _resolve_bot_username(state) -> str | None:
@@ -224,18 +237,20 @@ async def novofon_webhook(request: Request):
         reason = "повторный пропущенный с этого номера сегодня"
         logger.info("Автосообщение на {} уже отправлено сегодня — второе не шлём", masked)
     else:
+        # Каскад MAX → (30с нет доставки) → SMS. MAX — заглушка, поэтому фактически
+        # уходит SMS-мост; попытки и инцидент фиксирует сам диспетчер.
         deep_link = f"https://t.me/{bot_username}?start={clinic.slug}__sms"
-        try:
-            await state.sms.send_sms(caller, build_sms_text(clinic, deep_link), clinic.sms_sender)
+        text = build_sms_text(clinic, deep_link)
+        res = await _dispatcher(state).deliver(
+            clinic, caller, text, ref=call_id, sign=clinic.sms_sender
+        )
+        if res.success:
             await state.db.mark_sms_sent(call_id)
             await state.db.incr_sms_count(clinic.slug, date)
-            await state.db.record_delivery(clinic.slug, call_id, "sms", True)
             sms_ok = True
-        except Exception as e:
-            reason = "ошибка отправки SMS"
-            await state.db.record_delivery(clinic.slug, call_id, "sms", False)
-            await state.db.record_incident(clinic.slug, call_id)
-            logger.error("SMS по пропущенному звонку не отправлена ({}): {}", masked, e)
+        else:
+            reason = f"каскад не доставил ({res.detail or 'все каналы недоступны'})"
+            logger.error("Каскад доставки не сработал для {}: {}", masked, res.detail)
 
     note = f"📵 Пропущенный звонок от {masked}, " + (
         "SMS отправлена" if sms_ok else f"SMS НЕ отправлена ({reason})"

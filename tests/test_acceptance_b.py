@@ -124,6 +124,28 @@ async def test_no_patient_pii_sent_to_llm(db, clinics, leads, settings, session)
     assert lead["phone"] == "+79171234567"
 
 
+async def test_early_volunteered_name_redacted(engine, db, session):
+    from app.redaction import anonymize_for_llm
+
+    # Имя+фамилия, названные ДО шага NAME, — обезличиваются перед отправкой в LLM
+    out = anonymize_for_llm("Меня зовут Иван Петров, хочу на чистку", name=None)
+    assert "Иван" not in out and "Петров" not in out
+    # Телефон в «точечном» формате тоже вырезается
+    assert "[телефон]" in anonymize_for_llm("мой номер 8.917.123.45.67")
+
+
+# --- scheduler_lite: свободные окна подмешиваются в промпт Анны ---------------
+
+async def test_slots_injected_into_prompt(engine, clinics):
+    from app.core.prompts import build_system_prompt
+
+    sys = build_system_prompt(clinics["demo-dent"], "TIME", slots="вт 13:00, вт 13:30")
+    assert "СВОБОДНЫЕ ОКНА" in sys and "вт 13:00" in sys
+    # Движок подмешивает реальные слоты на шаге TIME
+    built = engine._build_system(clinics["demo-dent"], "TIME")
+    assert "СВОБОДНЫЕ ОКНА" in built
+
+
 # --- 15. Редактирование диагнозов до записи (карточка + transcript) ---------
 
 async def test_redaction_hides_diagnosis(engine, db, session):
@@ -296,11 +318,12 @@ async def test_reliability_streak_with_one_incident(db, clinics, settings, notif
 # --- 13 + БЕЗОП (d). Magic-link → HttpOnly-cookie сессия; протухший/использованный отклонён
 
 async def test_magic_link_cookie_session(db, clinics, settings, notifier):
+    from app.auth import issue_magic_token
+
     app = _api(db, clinics, settings, notifier)
     async with _client(app) as c:
-        r = await c.post("/api/auth/magic-link", json={"clinic_slug": "demo-dent"})
-        assert r.status_code == 200
-        token = r.json()["token"]
+        # Токен выпускается только ботом (Telegram-аутентификация) — не публичным HTTP.
+        token = await issue_magic_token(db, "demo-dent", settings.owner_tg_id)
 
         # Гашение magic-токена → сессия в cookie; токена в теле НЕТ
         r = await c.get("/api/auth/verify", params={"token": token})
@@ -325,7 +348,7 @@ async def test_magic_link_cookie_session(db, clinics, settings, notifier):
         assert (await c.get("/api/auth/session")).status_code == 401
 
         # Протухший magic-токен → 401
-        stale = (await c.post("/api/auth/magic-link", json={"clinic_slug": "demo-dent"})).json()["token"]
+        stale = await issue_magic_token(db, "demo-dent", settings.owner_tg_id)
         utils.set_clock(lambda: DAY + timedelta(minutes=16))
         try:
             assert (await c.get("/api/auth/verify", params={"token": stale})).status_code == 401
@@ -350,17 +373,21 @@ async def test_csrf_required_on_mutations(db, clinics, settings, notifier):
         assert r.status_code == 200
 
 
-# --- БЕЗОП (rate-limit). Перебор magic-link → 429 --------------------------
+# --- БЕЗОП. Выдача magic-link только владельцу; публичного HTTP-минта нет ------
 
-async def test_magic_link_rate_limited(db, clinics, settings, notifier):
+async def test_login_authorization(db, clinics, settings, notifier):
+    from app.auth import authorized_clinics
+
+    # Публичного эндпоинта выпуска токена больше нет (дыру закрыли)
     app = _api(db, clinics, settings, notifier)
     async with _client(app) as c:
-        codes = []
-        for _ in range(7):
-            r = await c.post("/api/auth/magic-link", json={"clinic_slug": "demo-dent"})
-            codes.append(r.status_code)
-        assert codes[:5] == [200] * 5      # первые 5 — ок
-        assert 429 in codes[5:]            # дальше — отбой
+        r = await c.post("/api/auth/magic-link", json={"clinic_slug": "demo-dent"})
+        assert r.status_code in (404, 405)
+
+    # Основатель (owner_tg_id) видит все клиники; чужой — ни одной
+    assert [c.slug for c in authorized_clinics(settings.owner_tg_id, clinics, settings.owner_tg_id)] == ["demo-dent"]
+    assert authorized_clinics(999999, clinics, settings.owner_tg_id) == []
+    assert authorized_clinics(0, clinics, settings.owner_tg_id) == []
 
 
 # --- БЕЗОП (a). Данные клиники A по токену B → отказ ------------------------

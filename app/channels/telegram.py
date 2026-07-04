@@ -21,9 +21,11 @@ from aiogram.types import (
 )
 from loguru import logger
 
+from app.auth import authorized_clinics, issue_magic_token
 from app.config import VALID_SOURCES, Clinic, Settings
 from app.core.dialogue import DialogueEngine
 from app.db import Database
+from app.ratelimit import RateLimiter
 
 CALL_HUMAN_CB = "call_human"
 
@@ -92,6 +94,28 @@ def create_router(
     lead_ops=None,
 ) -> Router:
     router = Router(name="podkhvat")
+    login_rl = RateLimiter(max_events=5, window_seconds=300)  # анти-перебор /login на пользователя
+
+    async def _deliver_login(message: Message) -> None:
+        """Вход в кабинет: выдаём magic-link ТОЛЬКО владельцу (Telegram уже
+        аутентифицировал пользователя), доставляем ссылку ему же в чат."""
+        user_id = message.from_user.id if message.from_user else 0
+        if not login_rl.allow(str(user_id)):
+            await message.answer("Слишком часто. Попробуйте через пару минут.")
+            return
+        allowed = authorized_clinics(user_id, clinics, settings.owner_tg_id)
+        if not allowed:
+            await message.answer(
+                "У вас пока нет доступа к кабинету. Подключение оформляет основатель — "
+                "напишите ему, и вас добавят."
+            )
+            return
+        lines = ["Ваши одноразовые ссылки для входа в кабинет (действуют 15 минут):"]
+        for clinic in allowed:
+            token = await issue_magic_token(db, clinic.slug, user_id)
+            lines.append(f"\n• {clinic.name}:\n{settings.public_base_url}/app/enter?token={token}")
+        lines.append("\nНикому не пересылайте эти ссылки.")
+        await message.answer("\n".join(lines))
 
     async def _start(message: Message, payload: str | None) -> None:
         slug, source = parse_start_payload(payload, clinics, settings.default_clinic_slug)
@@ -105,8 +129,16 @@ def create_router(
         for reply in result.replies:
             await message.answer(reply, reply_markup=_human_keyboard)
 
+    @router.message(Command("login"), F.chat.type == ChatType.PRIVATE)
+    async def login(message: Message) -> None:
+        await _deliver_login(message)
+
     @router.message(CommandStart(deep_link=True), F.chat.type == ChatType.PRIVATE)
     async def start_deep_link(message: Message, command: CommandObject) -> None:
+        # Кнопка «Войти» с витрины ведёт на ?start=login → вход в кабинет.
+        if (command.args or "").strip() == "login":
+            await _deliver_login(message)
+            return
         await _start(message, command.args)
 
     @router.message(CommandStart(), F.chat.type == ChatType.PRIVATE)

@@ -16,3 +16,6 @@ services:
 sms_sender: "DemoDent"
 novofon_number: "+78430000001"
 clinic_token: "demo-dent-token-123"   # персональный токен вебхука телефонии (в URL)
+# Telegram-id владельцев, кому бот выдаёт вход в кабинет этой клиники (/login).
+# Основатель (OWNER_TG_ID из .env) имеет доступ ко всем клиникам и без этого списка.
+owner_tg_ids: []
