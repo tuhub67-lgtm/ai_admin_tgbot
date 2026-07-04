@@ -5,28 +5,22 @@ import { Icon } from '../design/components/core/Icon.jsx';
 import logoWine from '../assets/logo-tile-wine.png';
 import { Reveal } from '../lib/anim.jsx';
 import { BOT_LOGIN_URL } from '../config.js';
-import { api, saveClinic, saveToken } from './lib/api.js';
+import { api, isMock, signalAuth } from './lib/api.js';
 
 /* Вход в кабинет — без пароля. Одноразовая ссылка приходит в Telegram-боте.
-   Если бэкенда рядом нет (dev/preview) — показываем вход в демо на мок-данных. */
+   Если бэкенда рядом нет (dev/preview, мок-режим) — показываем вход в демо. */
 export default function Login() {
   const navigate = useNavigate();
-  const [demo, setDemo] = useState(false);
+  const [demo, setDemo] = useState(isMock); // демо-вход только в мок-режиме
 
-  // Пробуем ленту без токена: в моке она ответит (бэкенда нет) → покажем демо-вход.
-  // На живом бэкенде это вернёт 401 и демо-кнопки не будет.
   useEffect(() => {
-    let alive = true;
-    api.leads().then(() => { if (alive) setDemo(true); }).catch(() => { /* реальный бэкенд */ });
-    return () => { alive = false; };
-  }, []);
+    // На случай, если мок активировался позже — переспросим.
+    if (!demo && isMock()) setDemo(true);
+  }, [demo]);
 
   function enterDemo() {
-    api.verify('demo').then((res) => {
-      saveToken(res.token);
-      if (res.clinic) saveClinic(res.clinic);
-      navigate('/app', { replace: true });
-    }).catch(() => {});
+    // В моке verify «логинит»; signalAuth заставит оболочку перечитать сессию.
+    api.verify('demo').then(() => { signalAuth(); navigate('/app', { replace: true }); }).catch(() => {});
   }
 
   return (

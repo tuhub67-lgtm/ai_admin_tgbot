@@ -5,7 +5,7 @@ import { Input } from '../design/components/controls/Input.jsx';
 import { Button } from '../design/components/controls/Button.jsx';
 import { Icon } from '../design/components/core/Icon.jsx';
 import { Reveal } from '../lib/anim.jsx';
-import { getClinic } from './lib/api.js';
+import { api } from './lib/api.js';
 import { useToasts, ToastStack } from './lib/toast.jsx';
 
 const STEPS = ['Телефония', 'Расписание', 'Прайс и Анна', 'Тест'];
@@ -35,7 +35,8 @@ const TEST_DIALOG = [
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const clinic = getClinic();
+  const [clinic, setClinic] = useState(null);
+  useEffect(() => { api.session().then((r) => setClinic(r.clinic)).catch(() => {}); }, []);
   const clinicToken = clinic?.slug || 'clinic_token';
   const { toasts, toast, dismiss } = useToasts();
 

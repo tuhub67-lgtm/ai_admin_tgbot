@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../design/components/controls/Button.jsx';
 import { Icon } from '../design/components/core/Icon.jsx';
 import { BearMark } from '../design/components/core/BearMark.jsx';
-import { api, saveClinic, saveToken } from './lib/api.js';
+import { api } from './lib/api.js';
 import { BOT_LOGIN_URL } from '../config.js';
 
 /* /app/enter?token=<magic> — проверяем ссылку, сохраняем JWT, уходим в кабинет. */
@@ -16,13 +16,9 @@ export default function Enter() {
   useEffect(() => {
     let alive = true;
     if (!token) { setState('error'); return undefined; }
+    // verify выставляет HttpOnly-cookie сессии на сервере; токен в JS не попадает.
     api.verify(token)
-      .then((res) => {
-        if (!alive) return;
-        saveToken(res.token);
-        if (res.clinic) saveClinic(res.clinic);
-        navigate('/app', { replace: true });
-      })
+      .then(() => { if (alive) navigate('/app', { replace: true }); })
       .catch(() => { if (alive) setState('error'); });
     return () => { alive = false; };
   }, [token, navigate]);

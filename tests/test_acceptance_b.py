@@ -43,8 +43,21 @@ def _client(app):
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test")
 
 
-def _auth(clinic_slug, settings):
-    return {"Authorization": f"Bearer {create_jwt(clinic_slug, settings.jwt_secret)}"}
+def _cookies(clinic_slug, settings, csrf="test-csrf"):
+    """Cookie сессии кабинета: HttpOnly JWT + читаемый CSRF (как выдаёт /auth/verify)."""
+    jwt = create_jwt(clinic_slug, settings.jwt_secret, csrf=csrf)
+    return {"pk_session": jwt, "pk_csrf": csrf}
+
+
+def _csrf(csrf="test-csrf"):
+    return {"X-CSRF-Token": csrf}
+
+
+def _login(c, clinic_slug, settings, csrf="test-csrf"):
+    """Ставит cookie сессии на клиента (как после /auth/verify). Возвращает csrf."""
+    for k, v in _cookies(clinic_slug, settings, csrf).items():
+        c.cookies.set(k, v)
+    return csrf
 
 
 async def _make_lead(db, clinic="demo-dent", *, status="pending", est_sum=4500, source="landing", phone="+79170000001"):
@@ -181,7 +194,8 @@ async def test_money_weekly_and_payback(db, clinics, settings, notifier):
 
     app = _api(db, clinics, settings, notifier)
     async with _client(app) as c:
-        r = await c.get("/api/money/weekly", headers=_auth("demo-dent", settings))
+        _login(c, "demo-dent", settings)
+        r = await c.get("/api/money/weekly")
         assert r.status_code == 200
         data = r.json()
     assert data["total"] == 16300
@@ -215,42 +229,79 @@ async def test_reliability_streak_with_one_incident(db, clinics, settings, notif
 
     app = _api(db, clinics, settings, notifier)
     async with _client(app) as c:
-        r = await c.get("/api/reliability-streak", headers=_auth("demo-dent", settings))
+        _login(c, "demo-dent", settings)
+        r = await c.get("/api/reliability-streak")
         assert r.json()["current_streak_days"] == 5
 
 
-# --- 13 + БЕЗОП (d). Magic-link: 15 мин, протухший/использованный отклонён ---
+# --- 13 + БЕЗОП (d). Magic-link → HttpOnly-cookie сессия; протухший/использованный отклонён
 
-async def test_magic_link_and_jwt(db, clinics, settings, notifier):
+async def test_magic_link_cookie_session(db, clinics, settings, notifier):
     app = _api(db, clinics, settings, notifier)
     async with _client(app) as c:
         r = await c.post("/api/auth/magic-link", json={"clinic_slug": "demo-dent"})
         assert r.status_code == 200
         token = r.json()["token"]
 
-        # Первое гашение — выдаёт JWT
+        # Гашение magic-токена → сессия в cookie; токена в теле НЕТ
         r = await c.get("/api/auth/verify", params={"token": token})
         assert r.status_code == 200
-        jwt = r.json()["token"]
         assert r.json()["clinic"]["slug"] == "demo-dent"
+        assert "token" not in r.json()                 # JWT в HttpOnly-cookie, не в теле
+        set_cookie = r.headers.get("set-cookie", "")
+        assert "pk_session=" in set_cookie and "HttpOnly" in set_cookie
+        assert "pk_csrf=" in set_cookie                # CSRF-cookie тоже выставлена
 
-        # Повторное использование того же токена — отказ (одноразовый)
-        r = await c.get("/api/auth/verify", params={"token": token})
-        assert r.status_code == 401
+        # Сессия из cookie (jar httpx) работает
+        assert (await c.get("/api/leads")).status_code == 200
+        r = await c.get("/api/auth/session")
+        assert r.status_code == 200 and r.json()["clinic"]["slug"] == "demo-dent"
 
-        # JWT работает для кабинета
-        r = await c.get("/api/leads", headers={"Authorization": f"Bearer {jwt}"})
-        assert r.status_code == 200
+        # Повторное использование того же magic-токена → 401 (одноразовый)
+        assert (await c.get("/api/auth/verify", params={"token": token})).status_code == 401
 
-        # Протухший токен — отказ
-        r2 = await c.post("/api/auth/magic-link", json={"clinic_slug": "demo-dent"})
-        stale = r2.json()["token"]
+        # Выход по CSRF → сессия недействительна
+        csrf = c.cookies.get("pk_csrf")
+        assert (await c.post("/api/auth/logout", headers={"X-CSRF-Token": csrf})).status_code == 200
+        assert (await c.get("/api/auth/session")).status_code == 401
+
+        # Протухший magic-токен → 401
+        stale = (await c.post("/api/auth/magic-link", json={"clinic_slug": "demo-dent"})).json()["token"]
         utils.set_clock(lambda: DAY + timedelta(minutes=16))
         try:
-            r = await c.get("/api/auth/verify", params={"token": stale})
-            assert r.status_code == 401
+            assert (await c.get("/api/auth/verify", params={"token": stale})).status_code == 401
         finally:
             utils.set_clock(lambda: DAY)
+
+
+# --- БЕЗОП (CSRF). Мутирующий запрос без X-CSRF-Token → 403 -----------------
+
+async def test_csrf_required_on_mutations(db, clinics, settings, notifier):
+    lead_id = await _make_lead(db, clinic="demo-dent")
+    app = _api(db, clinics, settings, notifier)
+    async with _client(app) as c:
+        _login(c, "demo-dent", settings)
+        # Без CSRF-заголовка — 403, даже с валидной сессией
+        r = await c.post(f"/api/leads/{lead_id}/confirm", json={})
+        assert r.status_code == 403
+        r = await c.post(f"/api/leads/{lead_id}/status", json={"status": "lost"})
+        assert r.status_code == 403
+        # С правильным CSRF-заголовком — проходит
+        r = await c.post(f"/api/leads/{lead_id}/confirm", json={}, headers=_csrf())
+        assert r.status_code == 200
+
+
+# --- БЕЗОП (rate-limit). Перебор magic-link → 429 --------------------------
+
+async def test_magic_link_rate_limited(db, clinics, settings, notifier):
+    app = _api(db, clinics, settings, notifier)
+    async with _client(app) as c:
+        codes = []
+        for _ in range(7):
+            r = await c.post("/api/auth/magic-link", json={"clinic_slug": "demo-dent"})
+            codes.append(r.status_code)
+        assert codes[:5] == [200] * 5      # первые 5 — ок
+        assert 429 in codes[5:]            # дальше — отбой
 
 
 # --- БЕЗОП (a). Данные клиники A по токену B → отказ ------------------------
@@ -266,21 +317,21 @@ async def test_tenant_isolation(db, clinics, settings, notifier):
     app = _api(db, clinics2, settings, notifier)
     async with _client(app) as c:
         # Свой лид клиника видит
-        r = await c.get("/api/leads", headers=_auth("demo-dent", settings))
+        _login(c, "demo-dent", settings)
+        r = await c.get("/api/leads")
         assert any(x["id"] == lead_id for x in r.json()["leads"])
 
         # Клиника B не видит лид A и не может открыть его transcript
-        r = await c.get("/api/leads", headers=_auth("other-clinic", settings))
+        _login(c, "other-clinic", settings)
+        r = await c.get("/api/leads")
         assert all(x["id"] != lead_id for x in r.json()["leads"])
-        r = await c.get(f"/api/leads/{lead_id}/transcript", headers=_auth("other-clinic", settings))
+        r = await c.get(f"/api/leads/{lead_id}/transcript")
         assert r.status_code == 404
-        # И не может сменить статус чужого лида
-        r = await c.post(
-            f"/api/leads/{lead_id}/status", json={"status": "lost"},
-            headers=_auth("other-clinic", settings),
-        )
+        # И не может сменить статус чужого лида (валидные сессия+CSRF клиники B)
+        r = await c.post(f"/api/leads/{lead_id}/status", json={"status": "lost"}, headers=_csrf())
         assert r.status_code == 404
-        # Без токена — 401
+        # Без cookie — 401
+        c.cookies.clear()
         r = await c.get("/api/leads")
         assert r.status_code == 401
 

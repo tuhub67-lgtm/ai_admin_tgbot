@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon } from '../design/components/core/Icon.jsx';
 import logoWine from '../assets/logo-tile-wine.png';
-import { authEvents, clearToken, getClinic, getToken } from './lib/api.js';
+import { api, authEvents } from './lib/api.js';
 import { useTheme } from './lib/theme.js';
 import Login from './Login.jsx';
 
@@ -71,22 +71,34 @@ function NavTab({ tab, variant }) {
 }
 
 export default function CabinetLayout() {
-  const [token, setToken] = useState(getToken);
+  const [auth, setAuth] = useState('checking'); // checking | in | out
+  const [clinic, setClinic] = useState(null);
   const [theme, toggleTheme] = useTheme();
   const onboarded = useOnboarded();
-  const clinic = getClinic();
   const location = useLocation();
   usePWA();
 
-  // Реакция на login / logout / 401.
+  // Авторизация определяется сессией из HttpOnly-cookie (сервер), не токеном в JS.
   useEffect(() => {
-    if (!authEvents) return undefined;
-    const onChange = () => setToken(getToken());
-    authEvents.addEventListener('change', onChange);
-    return () => authEvents.removeEventListener('change', onChange);
+    let alive = true;
+    const check = () => api.session()
+      .then((r) => { if (alive) { setClinic(r.clinic); setAuth('in'); } })
+      .catch(() => { if (alive) setAuth('out'); });
+    check();
+    if (authEvents) authEvents.addEventListener('change', check);
+    return () => { alive = false; if (authEvents) authEvents.removeEventListener('change', check); };
   }, []);
 
-  if (!token) return <Login />;
+  const logout = () => { api.logout().catch(() => {}).finally(() => setAuth('out')); };
+
+  if (auth === 'checking') {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: 'var(--text-secondary)', fontSize: 16 }}>
+        Открываем кабинет…
+      </div>
+    );
+  }
+  if (auth === 'out') return <Login />;
 
   const tabs = onboarded ? TABS : [...TABS, ONBOARDING_TAB];
 
@@ -114,7 +126,7 @@ export default function CabinetLayout() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
-            <IconButton onClick={clearToken} title="Выйти" icon="lock" label="Выйти" />
+            <IconButton onClick={logout} title="Выйти" icon="lock" label="Выйти" />
           </div>
         </div>
       </header>

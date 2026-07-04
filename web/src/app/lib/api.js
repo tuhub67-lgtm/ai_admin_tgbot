@@ -1,37 +1,25 @@
 /* Клиент кабинета «Подхват AI+».
-   - JWT в localStorage['pk_jwt'], уходит заголовком Authorization: Bearer.
-   - На 401 — чистим токен и сигналим смену авторизации (Layout покажет вход).
-   - Мок-режим: если fetch не достучался до бэкенда ИЛИ VITE_API_MOCK==='1',
-     отдаём реалистичные данные из mock.js. Реальный API используется, когда доступен. */
+   Сессия — в HttpOnly-cookie pk_session (JS её НЕ читает): защита от кражи токена
+   через XSS. Браузер сам шлёт cookie (credentials: 'include'). На мутирующих
+   запросах добавляем заголовок X-CSRF-Token из читаемой cookie pk_csrf
+   (signed double-submit) — защита от CSRF.
+   Мок-режим: если fetch не достучался до бэкенда ИЛИ VITE_API_MOCK==='1',
+   отдаём данные из mock.js. */
 
 import { mockHandle } from './mock.js';
 
-const TOKEN_KEY = 'pk_jwt';
-const CLINIC_KEY = 'pk_clinic';
+const CSRF_COOKIE = 'pk_csrf';
 
-/* Событие смены авторизации (login / logout / 401). Layout подписывается. */
+/* Событие смены авторизации (login / logout / 401). Layout переспросит сессию. */
 export const authEvents = typeof EventTarget !== 'undefined' ? new EventTarget() : null;
-function signalAuth() {
+export function signalAuth() {
   if (authEvents) authEvents.dispatchEvent(new Event('change'));
 }
 
-export function getToken() {
-  try { return localStorage.getItem(TOKEN_KEY) || null; } catch { return null; }
-}
-export function saveToken(token) {
-  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
-  signalAuth();
-}
-export function clearToken() {
-  try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(CLINIC_KEY); } catch { /* ignore */ }
-  signalAuth();
-}
-
-export function saveClinic(clinic) {
-  try { localStorage.setItem(CLINIC_KEY, JSON.stringify(clinic)); } catch { /* ignore */ }
-}
-export function getClinic() {
-  try { return JSON.parse(localStorage.getItem(CLINIC_KEY) || 'null'); } catch { return null; }
+function readCookie(name) {
+  if (typeof document === 'undefined') return '';
+  const m = document.cookie.match(new RegExp('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)'));
+  return m ? decodeURIComponent(m.pop()) : '';
 }
 
 export class ApiError extends Error {
@@ -42,19 +30,17 @@ export class ApiError extends Error {
   }
 }
 
-/* Мок включается принудительно через env или автоматически, если бэкенда нет.
-   backendSeen — «мы уже видели живой ответ бэкенда», чтобы реальные 404/500
-   не переключали клиент в мок навсегда. */
 let mockActive = import.meta.env.VITE_API_MOCK === '1';
 let backendSeen = false;
 
-async function request(path, { method = 'GET', body = null, auth = true } = {}) {
+async function request(path, { method = 'GET', body = null } = {}) {
   if (mockActive) return mockHandle(path, method, body);
 
   const headers = { 'Content-Type': 'application/json' };
-  if (auth) {
-    const t = getToken();
-    if (t) headers.Authorization = `Bearer ${t}`;
+  const mutating = method !== 'GET' && method !== 'HEAD';
+  if (mutating) {
+    const csrf = readCookie(CSRF_COOKIE);
+    if (csrf) headers['X-CSRF-Token'] = csrf;
   }
 
   let res;
@@ -62,22 +48,20 @@ async function request(path, { method = 'GET', body = null, auth = true } = {}) 
     res = await fetch(path, {
       method,
       headers,
+      credentials: 'include', // браузер приложит cookie сессии
       body: body != null ? JSON.stringify(body) : undefined,
     });
   } catch {
-    // Не достучались до сервера → мок-режим (dev/preview без бэкенда).
     if (!backendSeen) { mockActive = true; return mockHandle(path, method, body); }
     throw new ApiError(0, 'network');
   }
 
   if (res.status === 401) {
     backendSeen = true;
-    clearToken();
+    signalAuth(); // сессия истекла/отсутствует → Layout покажет вход
     throw new ApiError(401, 'unauthorized');
   }
-
   if (!res.ok) {
-    // До первого живого ответа считаем, что бэкенда просто нет (dev отдаёт 404 на /api/*).
     if (!backendSeen) { mockActive = true; return mockHandle(path, method, body); }
     throw new ApiError(res.status, `HTTP ${res.status}`);
   }
@@ -85,7 +69,6 @@ async function request(path, { method = 'GET', body = null, auth = true } = {}) 
   const ct = res.headers.get('content-type') || '';
   const text = await res.text();
   if (!ct.includes('json')) {
-    // Например dev-сервер отдал index.html вместо JSON — значит бэкенда нет.
     if (!backendSeen) { mockActive = true; return mockHandle(path, method, body); }
   }
   backendSeen = true;
@@ -93,7 +76,10 @@ async function request(path, { method = 'GET', body = null, auth = true } = {}) 
 }
 
 export const api = {
-  verify: (token) => request(`/api/auth/verify?token=${encodeURIComponent(token)}`, { auth: false }),
+  // Вход: /auth/verify выставляет HttpOnly-cookie сессии (в теле токена нет).
+  verify: (token) => request(`/api/auth/verify?token=${encodeURIComponent(token)}`),
+  session: () => request('/api/auth/session'),
+  logout: () => request('/api/auth/logout', { method: 'POST' }),
   leads: (status) => request(`/api/leads${status ? `?status=${encodeURIComponent(status)}` : ''}`),
   transcript: (id) => request(`/api/leads/${id}/transcript`),
   setStatus: (id, status) => request(`/api/leads/${id}/status`, { method: 'POST', body: { status } }),

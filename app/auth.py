@@ -23,6 +23,10 @@ from app.utils import now_msk
 MAGIC_TTL_MINUTES = 15
 JWT_TTL_HOURS = 24 * 14  # кабинет — долгая сессия, вход редкий
 
+# Имена cookie сессии кабинета.
+SESSION_COOKIE = "pk_session"   # JWT, HttpOnly+Secure+SameSite=Lax (JS не читает)
+CSRF_COOKIE = "pk_csrf"         # CSRF-токен, читаемый JS (double-submit)
+
 
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
@@ -51,12 +55,16 @@ async def consume_magic_token(db: Database, token: str) -> str | None:
 # --- JWT (HS256) ----------------------------------------------------------
 
 
-def create_jwt(clinic_slug: str, secret: str, *, ttl_hours: int = JWT_TTL_HOURS) -> str:
+def create_jwt(
+    clinic_slug: str, secret: str, *, csrf: str | None = None, ttl_hours: int = JWT_TTL_HOURS
+) -> str:
     if not secret:
         raise RuntimeError("JWT_SECRET не задан")
     header = {"alg": "HS256", "typ": "JWT"}
     exp = int((now_msk() + timedelta(hours=ttl_hours)).timestamp())
     payload = {"clinic": clinic_slug, "exp": exp}
+    if csrf:
+        payload["csrf"] = csrf
     seg = _b64url(json.dumps(header, separators=(",", ":")).encode()) + "." + _b64url(
         json.dumps(payload, separators=(",", ":")).encode()
     )
@@ -81,8 +89,11 @@ def decode_jwt(token: str, secret: str) -> dict | None:
     return payload
 
 
-def clinic_from_auth_header(authorization: str | None, secret: str) -> str | None:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        return None
-    payload = decode_jwt(authorization[7:].strip(), secret)
-    return payload.get("clinic") if payload else None
+def new_csrf() -> str:
+    return secrets.token_urlsafe(24)
+
+
+def session_payload(request, secret: str) -> dict | None:
+    """Валидный payload сессии из HttpOnly-cookie pk_session, либо None."""
+    token = request.cookies.get(SESSION_COOKIE)
+    return decode_jwt(token, secret) if token else None

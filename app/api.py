@@ -6,28 +6,82 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from loguru import logger
 from pydantic import BaseModel
 
-from app.auth import clinic_from_auth_header, consume_magic_token, create_jwt, issue_magic_token
+from app.auth import (
+    CSRF_COOKIE,
+    JWT_TTL_HOURS,
+    SESSION_COOKIE,
+    consume_magic_token,
+    create_jwt,
+    issue_magic_token,
+    new_csrf,
+    session_payload,
+)
 from app.lead_ops import VALID_STATUSES, LeadOps
 from app.money import weekly_money
+from app.ratelimit import RateLimiter, client_ip
 from app.reliability import compute_streak
 from app.utils import mask_phone
 
 router = APIRouter(prefix="/api", tags=["cabinet"])
 
 
-def _clinic_or_401(request: Request) -> str:
-    """clinic_slug из JWT (Authorization: Bearer). 401 — если токена нет/протух."""
-    secret = request.app.state.settings.jwt_secret
-    clinic = clinic_from_auth_header(request.headers.get("authorization"), secret)
-    if not clinic:
+def _rl(request: Request, name: str, max_events: int, window: int) -> RateLimiter:
+    """Ленивый per-app rate-limiter (свежий на каждый инстанс приложения)."""
+    st = request.app.state
+    rl = getattr(st, name, None)
+    if rl is None:
+        rl = RateLimiter(max_events, window)
+        setattr(st, name, rl)
+    return rl
+
+
+def _session(request: Request) -> dict:
+    """Payload сессии из HttpOnly-cookie. 401 — если cookie нет/протухла/битая."""
+    payload = session_payload(request, request.app.state.settings.jwt_secret)
+    if not payload or payload.get("clinic") not in request.app.state.clinics:
         raise HTTPException(status_code=401, detail="нужен вход в кабинет")
-    if clinic not in request.app.state.clinics:
-        raise HTTPException(status_code=401, detail="клиника не найдена")
-    return clinic
+    return payload
+
+
+def _clinic_or_401(request: Request) -> str:
+    return _session(request)["clinic"]
+
+
+def _require_csrf(request: Request) -> str:
+    """CSRF-защита мутирующих запросов: заголовок X-CSRF-Token должен совпасть с
+    csrf-claim подписанной сессии (signed double-submit cookie). Возвращает clinic."""
+    payload = _session(request)
+    header = request.headers.get("x-csrf-token", "")
+    expected = payload.get("csrf", "")
+    if not expected or header != expected:
+        raise HTTPException(status_code=403, detail="CSRF-токен не совпал")
+    return payload["clinic"]
+
+
+def _cookie_kwargs(settings) -> dict:
+    return {
+        "secure": True,        # только по HTTPS (в проде — Caddy TLS)
+        "samesite": "lax",     # cross-site POST не пришлёт cookie → защита от CSRF
+        "path": "/",
+    }
+
+
+def _set_session_cookies(response: Response, jwt: str, csrf: str, settings) -> None:
+    max_age = JWT_TTL_HOURS * 3600
+    kw = _cookie_kwargs(settings)
+    response.set_cookie(SESSION_COOKIE, jwt, httponly=True, max_age=max_age, **kw)
+    # CSRF-cookie читаема JS (double-submit) — не HttpOnly.
+    response.set_cookie(CSRF_COOKIE, csrf, httponly=False, max_age=max_age, **kw)
+
+
+def _clear_session_cookies(response: Response, settings) -> None:
+    kw = _cookie_kwargs(settings)
+    response.delete_cookie(SESSION_COOKIE, **kw)
+    response.delete_cookie(CSRF_COOKIE, **kw)
 
 
 def _lead_ops(request: Request) -> LeadOps:
@@ -46,7 +100,10 @@ class MagicLinkReq(BaseModel):
 @router.post("/auth/magic-link")
 async def auth_magic_link(request: Request, body: MagicLinkReq):
     """Выдать одноразовую ссылку входа. Self-service регистрации нет: клиника
-    должна существовать (создаётся оператором через scripts/add_clinic.py)."""
+    должна существовать (создаётся оператором через scripts/add_clinic.py).
+    Rate-limit защищает от перебора ссылок."""
+    if not _rl(request, "magic_link_rl", 5, 300).allow(f"{client_ip(request)}:{body.clinic_slug}"):
+        raise HTTPException(status_code=429, detail="слишком часто — попробуйте позже")
     if body.clinic_slug not in request.app.state.clinics:
         raise HTTPException(status_code=404, detail="клиника не найдена")
     token = await issue_magic_token(request.app.state.db, body.clinic_slug, body.tg_user_id)
@@ -55,14 +112,39 @@ async def auth_magic_link(request: Request, body: MagicLinkReq):
 
 
 @router.get("/auth/verify")
-async def auth_verify(request: Request, token: str):
-    """Погасить magic-токен и выдать JWT-сессию кабинета."""
+async def auth_verify(request: Request, response: Response, token: str):
+    """Погасить magic-токен и завести сессию: JWT в HttpOnly-cookie + CSRF-cookie.
+    Токен сессии в теле НЕ возвращаем (браузерный JS его не видит)."""
     clinic = await consume_magic_token(request.app.state.db, token)
     if not clinic:
         raise HTTPException(status_code=401, detail="ссылка недействительна или устарела")
-    jwt = create_jwt(clinic, request.app.state.settings.jwt_secret)
+    settings = request.app.state.settings
+    csrf = new_csrf()
+    jwt = create_jwt(clinic, settings.jwt_secret, csrf=csrf)
+    _set_session_cookies(response, jwt, csrf, settings)
     clinic_obj = request.app.state.clinics[clinic]
-    return {"token": jwt, "clinic": {"slug": clinic, "name": clinic_obj.name}}
+    return {"clinic": {"slug": clinic, "name": clinic_obj.name}}
+
+
+@router.get("/auth/session")
+async def auth_session(request: Request):
+    """Текущая сессия из cookie (фронт узнаёт, авторизован ли и какая клиника)."""
+    clinic = _session(request)["clinic"]
+    c = request.app.state.clinics[clinic]
+    return {"clinic": {"slug": clinic, "name": c.name}}
+
+
+@router.post("/auth/logout")
+async def auth_logout(request: Request, response: Response):
+    """Выход: чистим cookie. Если сессия есть — требуем CSRF (защита от
+    принудительного логаута); если сессии нет — просто чистим (идемпотентно)."""
+    settings = request.app.state.settings
+    payload = session_payload(request, settings.jwt_secret)
+    if payload:
+        if request.headers.get("x-csrf-token", "") != payload.get("csrf", ""):
+            raise HTTPException(status_code=403, detail="CSRF-токен не совпал")
+    _clear_session_cookies(response, settings)
+    return {"ok": True}
 
 
 # --- Лиды -----------------------------------------------------------------
@@ -115,7 +197,7 @@ class StatusReq(BaseModel):
 
 @router.post("/leads/{lead_id}/status")
 async def set_status(request: Request, lead_id: int, body: StatusReq):
-    clinic = _clinic_or_401(request)
+    clinic = _require_csrf(request)
     if body.status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail="недопустимый статус")
     lead = await _lead_ops(request).set_status(clinic, lead_id, body.status)
@@ -130,7 +212,7 @@ class ConfirmReq(BaseModel):
 
 @router.post("/leads/{lead_id}/confirm")
 async def confirm_lead(request: Request, lead_id: int, body: ConfirmReq | None = None):
-    clinic = _clinic_or_401(request)
+    clinic = _require_csrf(request)
     slot = body.slot if body else None
     lead = await _lead_ops(request).confirm(clinic, lead_id, slot)
     if lead is None:
@@ -177,7 +259,7 @@ async def get_settings(request: Request):
 
 @router.post("/settings")
 async def save_settings(request: Request):
-    clinic = _clinic_or_401(request)
+    clinic = _require_csrf(request)
     data = await request.json()
     settings = data.get("settings", data)
     if not isinstance(settings, dict):
@@ -201,7 +283,9 @@ class LeadRequest(BaseModel):
 async def public_lead_request(request: Request, body: LeadRequest):
     """Заявка «Подключить клинику» с витрины → уведомление владельцу. Это НЕ
     лид-пациент и не самостоятельная регистрация клиники — заявку обрабатывает
-    основатель вручную."""
+    основатель вручную. Rate-limit защищает от спама заявок."""
+    if not _rl(request, "lead_request_rl", 8, 3600).allow(client_ip(request)):
+        raise HTTPException(status_code=429, detail="слишком много заявок — попробуйте позже")
     owner = request.app.state.settings.owner_tg_id
     text = (
         "🆕 Заявка с витрины «Подключить клинику»\n"

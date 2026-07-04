@@ -175,13 +175,31 @@ function parse(path) {
   return { p, query };
 }
 
+// Демо-сессия: превью стартует «залогиненным»; «Выйти» → loggedIn=false → вход.
+let loggedIn = true;
+
+function need401() {
+  return Promise.reject(Object.assign(new Error('unauthorized'), { status: 401 }));
+}
+
 export function mockHandle(path, method = 'GET', body = null) {
   const { p, query } = parse(path);
 
+  // --- Авторизация (мок) ---
   if (p === '/api/auth/verify') {
-    if (!query.token) return Promise.reject(Object.assign(new Error('bad token'), { status: 401 }));
-    return json({ token: 'mock.jwt.' + query.token.slice(0, 8), clinic });
+    if (!query.token) return need401();
+    loggedIn = true;                       // magic-link «вошёл»
+    return json({ clinic });               // токен — как в проде, в теле его нет
   }
+  if (p === '/api/auth/session') {
+    return loggedIn ? json({ clinic }) : need401();
+  }
+  if (p === '/api/auth/logout') {
+    loggedIn = false;
+    return json({ ok: true });
+  }
+  // Всё ниже — только для авторизованных (как на реальном /api).
+  if (!loggedIn) return need401();
 
   if (p === '/api/leads') {
     const list = query.status ? leads.filter((l) => l.status === query.status) : leads;

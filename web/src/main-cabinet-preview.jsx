@@ -24,13 +24,9 @@ import './app.css';
 
 import App from './App.jsx';
 
-// Демо-превью кабинета: мок-режим (VITE_API_MOCK=1), сразу открываем /app с
-// демо-сессией. Выход («Выйти») покажет экран входа. Маршруты — в памяти (iframe).
-try {
-  localStorage.setItem('pk_jwt', 'demo-preview');
-  localStorage.setItem('pk_clinic', JSON.stringify({ slug: 'demo-dent', name: 'Демо-Дент' }));
-} catch { /* ignore */ }
-
+// Демо-превью кабинета: мок-режим (VITE_API_MOCK=1) стартует «залогиненным»
+// (mock.js loggedIn=true), сразу открываем /app. «Выйти» покажет экран входа.
+// Маршруты — в памяти (MemoryRouter), чтобы не трогать URL в iframe.
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <MemoryRouter initialEntries={['/app']}>
