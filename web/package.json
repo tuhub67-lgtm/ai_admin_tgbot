@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:preview": "vite build --config vite.preview.config.js",
+    "build:preview:cab": "vite build --config vite.cabinet.config.js",
     "preview": "vite preview --port 4173"
   },
   "dependencies": {

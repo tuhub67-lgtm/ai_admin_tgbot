@@ -8,3 +8,4 @@ dist/
 !.env.production
 
 preview-dist/
+preview-dist-cab/

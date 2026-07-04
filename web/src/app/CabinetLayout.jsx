@@ -37,7 +37,8 @@ function usePWA() {
       link.href = '/manifest.webmanifest';
       document.head.appendChild(link);
     }
-    if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+    // В демо-превью (мок-режим) service worker не регистрируем — файла /sw.js там нет.
+    if (import.meta.env.PROD && import.meta.env.VITE_API_MOCK !== '1' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => { /* офлайн-режим необязателен */ });
     }
   }, []);
