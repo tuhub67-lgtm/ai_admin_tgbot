@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 
@@ -21,6 +24,7 @@ from app.auth import (
 )
 from app.lead_ops import VALID_STATUSES, LeadOps
 from app.money import weekly_money
+from app.onboarding import run_test_run
 from app.ratelimit import RateLimiter, client_ip
 from app.reliability import compute_streak
 from app.utils import mask_phone
@@ -259,6 +263,48 @@ async def save_settings(request: Request):
         raise HTTPException(status_code=400, detail="ожидался объект настроек")
     await request.app.state.db.set_clinic_settings(clinic, settings)
     return {"ok": True, "settings": settings}
+
+
+# --- Тест-прогон онбординга (реальный диалог Анны, SSE-стрим) --------------
+
+
+@router.get("/onboarding/test-run")
+async def onboarding_test_run(request: Request, csrf: str = ""):
+    """SSE-стрим тест-прогона «Позвонить самому себе»: настоящий диалог Анны
+    (GigaChat стримит реплики) по текущему промпту клиники, в конце — pending-
+    заявка в ленте. ПДн в модель не уходят (обезличивание как в бою).
+
+    EventSource не умеет слать заголовки → CSRF передаём query-параметром `csrf`
+    и сверяем с csrf-claim подписанной сессии (тот же signed double-submit)."""
+    payload = _session(request)
+    clinic_slug = payload["clinic"]
+    if not payload.get("csrf") or csrf != payload["csrf"]:
+        raise HTTPException(status_code=403, detail="CSRF-токен не совпал")
+
+    st = request.app.state
+    clinic = st.clinics[clinic_slug]
+    engine = getattr(st, "engine", None)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="движок диалога недоступен")
+
+    async def _events():
+        try:
+            async for event in run_test_run(engine, clinic):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:  # noqa: BLE001
+            logger.error("Тест-прогон онбординга упал: {}", e)
+            err = {"type": "error", "text": "Не удалось запустить тест-прогон. Попробуйте ещё раз."}
+            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        _events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # nginx/Caddy: не буферизовать поток
+            "Connection": "keep-alive",
+        },
+    )
 
 
 # --- Публичная заявка с витрины -------------------------------------------

@@ -6,7 +6,7 @@
    Мок-режим — ТОЛЬКО при VITE_API_MOCK==='1' (демо-превью без бэкенда). В реальной
    сборке авто-фолбэка на моки нет: сетевая ошибка не подменяется фейковыми данными. */
 
-import { mockHandle } from './mock.js';
+import { mockHandle, mockTestRun } from './mock.js';
 
 const CSRF_COOKIE = 'pk_csrf';
 
@@ -82,3 +82,38 @@ export const api = {
 };
 
 export function isMock() { return mockActive; }
+
+/* Тест-прогон онбординга «Позвонить самому себе» — реальный диалог Анны по SSE.
+   EventSource не умеет слать заголовки, поэтому CSRF передаём query-параметром
+   (сверяется с csrf-claim подписанной сессии). Cookie сессии браузер приложит
+   сам (same-origin). Возвращает функцию-остановку. В мок-режиме — локальная
+   симуляция того же потока событий (демо-превью без бэкенда).
+   Типы событий: info | patient | anna_start | anna_delta | anna_end | card | done | error. */
+export function onboardingTestRun({ onEvent, onDone, onError }) {
+  if (mockActive) return mockTestRun({ onEvent, onDone, onError });
+
+  const csrf = readCookie(CSRF_COOKIE);
+  let es;
+  try {
+    es = new EventSource(`/api/onboarding/test-run?csrf=${encodeURIComponent(csrf)}`);
+  } catch {
+    if (onError) onError({ type: 'error', text: 'Не удалось запустить тест-прогон' });
+    return () => {};
+  }
+  let finished = false;
+  const stop = () => { finished = true; try { es.close(); } catch { /* ignore */ } };
+
+  es.onmessage = (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+    if (onEvent) onEvent(data);
+    if (data.type === 'done') { stop(); if (onDone) onDone(data); }
+    else if (data.type === 'error') { stop(); if (onError) onError(data); }
+  };
+  es.onerror = () => {
+    if (finished) return;               // штатное закрытие после done — не ошибка
+    stop();
+    if (onError) onError({ type: 'error', text: 'Соединение прервано — попробуйте ещё раз' });
+  };
+  return stop;
+}

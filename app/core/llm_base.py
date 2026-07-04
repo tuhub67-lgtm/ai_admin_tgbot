@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -31,5 +32,21 @@ class BaseLLM(Protocol):
         extract=True подключает function calling save_lead_fields: модель может
         вернуть извлечённые поля заявки в LLMResult.fields (и тогда text может
         быть пустым). extract=False — только текст реплики.
+        """
+        ...
+
+    def stream(
+        self,
+        *,
+        system: str,
+        history: list[dict[str, str]],
+        max_tokens: int,
+    ) -> AsyncIterator[str]:
+        """Потоковая генерация реплики: async-итератор дельт текста по мере
+        генерации (для живого показа в UI — тест-прогон онбординга).
+
+        Только текст, без function calling: извлечение полей остаётся на
+        неблокирующем generate(). Историю вызывающий обязан подать УЖЕ
+        обезличенной — как и в generate(), ПДн в модель не уходят.
         """
         ...

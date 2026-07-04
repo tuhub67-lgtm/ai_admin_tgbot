@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { OnboardingStepper } from '../design/components/feedback/OnboardingStepper.jsx';
 import { Input } from '../design/components/controls/Input.jsx';
 import { Button } from '../design/components/controls/Button.jsx';
 import { Icon } from '../design/components/core/Icon.jsx';
 import { Reveal } from '../lib/anim.jsx';
-import { api } from './lib/api.js';
+import { api, onboardingTestRun, isMock } from './lib/api.js';
 import { useToasts, ToastStack } from './lib/toast.jsx';
 
 const STEPS = ['Телефония', 'Расписание', 'Прайс и Анна', 'Тест'];
@@ -24,15 +24,6 @@ const PBX = [
   { key: 'uis', label: 'UIS' },
 ];
 
-const TEST_DIALOG = [
-  { role: 'user', content: 'Здравствуйте, звонила по поводу записи, не дозвонилась.' },
-  { role: 'assistant', content: 'Здравствуйте! Это Анна из вашей клиники. Помогу записаться. Подскажите, что беспокоит — или на какую услугу вас записать?' },
-  { role: 'user', content: 'Хочу на чистку.' },
-  { role: 'assistant', content: 'Отлично. Есть завтра 10:00 и четверг 18:30. Какой вариант удобнее?' },
-  { role: 'user', content: 'Завтра в 10.' },
-  { role: 'assistant', content: 'Записала на завтра 10:00. Пришлю напоминание накануне. Хорошего дня!' },
-];
-
 export default function Onboarding() {
   const navigate = useNavigate();
   const [clinic, setClinic] = useState(null);
@@ -46,7 +37,6 @@ export default function Onboarding() {
   const [schedule, setSchedule] = useState('manual');
   const [sheetUrl, setSheetUrl] = useState('');
   const [services, setServices] = useState(PRESET_SERVICES);
-  const [testPlaying, setTestPlaying] = useState(false);
 
   const webhook = `https://api.podhvat.ru/webhook/${clinicToken}`;
 
@@ -89,7 +79,7 @@ export default function Onboarding() {
           <StepPrice services={services} setServices={setServices} />
         )}
         {step === 3 && (
-          <StepTest playing={testPlaying} onPlay={() => setTestPlaying(true)} />
+          <StepTest />
         )}
       </div>
 
@@ -268,21 +258,72 @@ function StepPrice({ services, setServices }) {
   );
 }
 
-function StepTest({ playing, onPlay }) {
-  const [shown, setShown] = useState(false);
-  const reduced = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  useEffect(() => {
-    if (!playing) { setShown(false); return undefined; }
-    const id = requestAnimationFrame(() => setShown(true));
-    return () => cancelAnimationFrame(id);
-  }, [playing]);
+/* Живой тест-прогон: реальный диалог Анны (GigaChat стримит реплики по SSE).
+   В демо-превью без бэкенда (VITE_API_MOCK=1) — та же анимация, локальная симуляция. */
+function StepTest() {
+  const [status, setStatus] = useState('idle'); // idle | running | done | error
+  const [info, setInfo] = useState(null);
+  const [turns, setTurns] = useState([]); // [{ role, text, streaming }]
+  const [card, setCard] = useState(null);
+  const [fallback, setFallback] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const stopRef = useRef(null);
+  const bottomRef = useRef(null);
+
+  useEffect(() => () => { if (stopRef.current) stopRef.current(); }, []);
+  useEffect(() => { if (bottomRef.current) bottomRef.current.scrollIntoView({ block: 'nearest' }); }, [turns, card]);
+
+  function appendDelta(text) {
+    setTurns((t) => {
+      const last = t[t.length - 1];
+      if (!last || last.role !== 'assistant') return t;
+      const copy = t.slice();
+      copy[copy.length - 1] = { ...last, text: last.text + text };
+      return copy;
+    });
+  }
+  function endAnna(full) {
+    setTurns((t) => {
+      const last = t[t.length - 1];
+      if (!last || last.role !== 'assistant') return t;
+      const copy = t.slice();
+      copy[copy.length - 1] = { ...last, text: full, streaming: false };
+      return copy;
+    });
+  }
+
+  function run() {
+    if (stopRef.current) stopRef.current();
+    setStatus('running'); setInfo(null); setTurns([]); setCard(null); setFallback(false); setErrorMsg('');
+    stopRef.current = onboardingTestRun({
+      onEvent: (e) => {
+        switch (e.type) {
+          case 'info': setInfo(e.text); break;
+          case 'patient': setTurns((t) => [...t, { role: 'user', text: e.text }]); break;
+          case 'anna_start': setTurns((t) => [...t, { role: 'assistant', text: '', streaming: true }]); break;
+          case 'anna_delta': appendDelta(e.text); break;
+          case 'anna_end': endAnna(e.text); if (e.fallback) setFallback(true); break;
+          case 'card': setCard(e.lead); break;
+          default: break;
+        }
+      },
+      onDone: (d) => { setStatus('done'); if (d.fallback) setFallback(true); },
+      onError: (er) => { setStatus('error'); setErrorMsg(er.text || 'Не удалось запустить тест-прогон'); },
+    });
+  }
+
+  const started = status !== 'idle';
 
   return (
     <div>
-      <StepHead icon="check" title="Проверим Анну в деле" text="Запустите тестовый диалог — так вы услышите её тон до первого живого пациента." />
-      {!playing ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0 8px' }}>
-          <Button variant="primary" size="lg" icon="call" onClick={onPlay}>Позвонить самому себе</Button>
+      <StepHead icon="check" title="Проверим Анну в деле" text="Смоделируем пропущенный звонок — Анна перезвонит и проведёт запись сама. Реплики она генерирует вживую по вашим настройкам, ничего не по сценарию." />
+
+      {!started ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '24px 0 8px' }}>
+          <Button variant="primary" size="lg" icon="call" onClick={run}>Позвонить самому себе</Button>
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            Тестовый номер обезличен — имя и телефон в модель не передаются.
+          </span>
         </div>
       ) : (
         <div
@@ -294,21 +335,22 @@ function StepTest({ playing, onPlay }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
             <Icon name="dialog" size={20} color="var(--wine-800)" />
             <span style={{ fontWeight: 600 }}>Тестовый диалог</span>
-            <span style={{ marginLeft: 'auto', fontSize: 14, color: 'var(--text-secondary)' }}>демо</span>
+            <span style={{ marginLeft: 'auto', fontSize: 14, color: 'var(--text-secondary)' }}>
+              {isMock() ? 'демо' : status === 'running' ? 'живой прогон…' : 'живой прогон'}
+            </span>
           </div>
-          {TEST_DIALOG.map((m, i) => {
+
+          {info && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, color: 'var(--text-secondary)', padding: '2px 2px 4px' }}>
+              <Icon name="call" size={16} color="var(--wine-800)" />
+              {info}
+            </div>
+          )}
+
+          {turns.map((m, i) => {
             const isAnna = m.role === 'assistant';
-            const visible = shown || reduced;
             return (
-              <div
-                key={i}
-                style={{
-                  display: 'flex', gap: 10, justifyContent: isAnna ? 'flex-start' : 'flex-end',
-                  opacity: visible ? 1 : 0, transform: visible ? 'none' : 'translateY(8px)',
-                  transition: reduced ? 'none' : 'opacity 360ms cubic-bezier(.16,1,.3,1), transform 360ms cubic-bezier(.16,1,.3,1)',
-                  transitionDelay: reduced ? '0ms' : `${i * 360}ms`,
-                }}
-              >
+              <div key={i} style={{ display: 'flex', gap: 10, justifyContent: isAnna ? 'flex-start' : 'flex-end' }}>
                 {isAnna && (
                   <span aria-hidden="true" style={{
                     flex: 'none', width: 28, height: 28, borderRadius: '50%', background: 'var(--wine-800)', color: 'var(--gold-300)',
@@ -323,15 +365,48 @@ function StepTest({ playing, onPlay }) {
                   border: isAnna ? '1px solid var(--border)' : 'none',
                 }}>
                   {isAnna && <strong style={{ fontWeight: 600 }}>Анна: </strong>}
-                  {m.content}
+                  {m.text}
+                  {isAnna && m.streaming && <span aria-hidden="true" className="pk-caret">▋</span>}
                 </div>
               </div>
             );
           })}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 4, padding: '10px 12px', background: 'var(--success-tint)', borderRadius: 'var(--r-card-sm)', color: 'var(--success-text)', fontSize: 16, fontWeight: 600 }}>
-            <Icon name="check" size={20} />
-            Пациент записан · чистка, завтра 10:00
-          </div>
+
+          {status === 'running' && turns.length === 0 && (
+            <div style={{ fontSize: 15, color: 'var(--text-secondary)', padding: '4px 2px' }}>Анна набирает номер…</div>
+          )}
+
+          {fallback && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, padding: '8px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-card-sm)', color: 'var(--text-secondary)' }}>
+              <Icon name="report" size={16} />
+              GigaChat был недоступен — показали запасные реплики Анны. В бою она так же не замолчит.
+            </div>
+          )}
+
+          {card && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginTop: 4, padding: '10px 12px', background: 'var(--success-tint)', borderRadius: 'var(--r-card-sm)', color: 'var(--success-text)', fontSize: 16, fontWeight: 600 }}>
+              <Icon name="check" size={20} style={{ flex: 'none', marginTop: 1 }} />
+              <span>
+                Заявка создана — ждёт подтверждения в ленте «Сегодня».<br />
+                <span style={{ fontWeight: 500 }}>{card.service}{card.preferred_time ? ` · ${card.preferred_time}` : ''}</span>
+              </span>
+            </div>
+          )}
+
+          {status === 'error' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, padding: '8px 12px', background: 'var(--danger-tint, var(--surface))', border: '1px solid var(--border-strong)', borderRadius: 'var(--r-card-sm)', color: 'var(--text)' }}>
+              <Icon name="report" size={16} />
+              {errorMsg}
+            </div>
+          )}
+
+          {status !== 'running' && (
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 4 }}>
+              <Button variant="secondary" size="sm" icon="return" onClick={run}>Запустить ещё раз</Button>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
         </div>
       )}
     </div>

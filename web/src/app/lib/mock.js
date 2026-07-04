@@ -246,3 +246,75 @@ export function mockHandle(path, method = 'GET', body = null) {
 
   return Promise.reject(Object.assign(new Error('mock: no route ' + p), { status: 404 }));
 }
+
+/* Симуляция тест-прогона онбординга для демо-превью (VITE_API_MOCK=1): тот же
+   поток событий, что и живой SSE, но без бэкенда — реплики Анны «печатаются»
+   по словам. На реальном /api вместо этого открывается EventSource. */
+export function mockTestRun({ onEvent, onDone }) {
+  const annaLines = {
+    greet: 'Здравствуйте! Это Анна из «Демо-Дент». Вижу, вы звонили — и мы не успели ответить. Подскажите, на какую услугу вас записать?',
+    urgency: 'Хорошо, записываю на профгигиену. Вас сейчас что-то беспокоит или запись плановая?',
+    name: 'Поняла, планово. Как к вам можно обращаться?',
+    phone: 'Приятно познакомиться, Мария! Оставьте, пожалуйста, номер телефона — на него пришлём подтверждение записи.',
+    time: 'Записала. Есть окна: завтра 09:30, завтра 11:00 и четверг 10:00. Какое время удобно?',
+    confirm: 'Отлично, ставлю предварительно на завтра в первой половине дня. Администратор подтвердит запись и пришлёт напоминание. Хорошего дня!',
+  };
+  const patient = [
+    'Здравствуйте! Звонила записаться, но не дозвонилась. Хотела бы на профгигиену, чистку.',
+    'Планово, ничего не беспокоит.',
+    'Меня зовут Мария.',
+    '+7 900 123-45-67',
+    'Удобно завтра в первой половине дня.',
+  ];
+  const card = {
+    id: 'test-run', name: 'Мария', phone: '+7 900 123-45-67', service: 'Профгигиена',
+    preferred_time: 'завтра, первая половина дня', slot: '', urgency: 'planned', status: 'pending',
+    is_urgent: false, is_night: false, est_sum: 4500, source: 'test', channel: 'test',
+    resume: '🧪 Тест-прогон Анны из онбординга — можно подтвердить или отметить потерянным.',
+    recovered_from_miss: true, created_at: new Date().toISOString(),
+  };
+
+  const seq = [
+    { info: 'Смоделировали пропущенный звонок с тестового номера — Анна перезванивает…' },
+    { anna: annaLines.greet },
+    { patient: patient[0] }, { anna: annaLines.urgency },
+    { patient: patient[1] }, { anna: annaLines.name },
+    { patient: patient[2] }, { anna: annaLines.phone },
+    { patient: patient[3] }, { anna: annaLines.time },
+    { patient: patient[4] }, { anna: annaLines.confirm },
+    { card },
+    { done: true },
+  ];
+
+  let stopped = false;
+  let timer = null;
+  const wait = (ms, fn) => { timer = setTimeout(() => { if (!stopped) fn(); }, ms); };
+
+  let si = 0;
+  function step() {
+    if (stopped || si >= seq.length) return;
+    const item = seq[si++];
+    if (item.info != null) { onEvent({ type: 'info', text: item.info }); wait(520, step); }
+    else if (item.patient != null) { onEvent({ type: 'patient', text: item.patient }); wait(640, step); }
+    else if (item.anna != null) { streamAnna(item.anna, () => wait(420, step)); }
+    else if (item.card != null) { onEvent({ type: 'card', lead: item.card }); wait(320, step); }
+    else if (item.done) { onEvent({ type: 'done', fallback: false }); if (onDone) onDone({ type: 'done', fallback: false }); }
+  }
+
+  function streamAnna(text, after) {
+    onEvent({ type: 'anna_start' });
+    const words = text.split(' ');
+    let wi = 0;
+    (function tick() {
+      if (stopped) return;
+      if (wi >= words.length) { onEvent({ type: 'anna_end', text, fallback: false }); after(); return; }
+      const delta = wi === 0 ? words[wi] : ' ' + words[wi];
+      wi += 1;
+      onEvent({ type: 'anna_delta', text: delta });
+      wait(45, tick);
+    })();
+  }
+
+  step();
+  return () => { stopped = true; if (timer) clearTimeout(timer); };
+}

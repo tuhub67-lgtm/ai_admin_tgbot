@@ -61,6 +61,11 @@ html.js-anim .reveal.is-visible { opacity: 1; transform: none; }
 .pk-ding { animation: pk-ding 620ms cubic-bezier(.2, 0, .2, 1) 1; }
 @media (prefers-reduced-motion: reduce) { .pk-ding { animation: none; } }
 
+/* Мигающий курсор во время потоковой генерации реплики Анны (тест-прогон) */
+@keyframes pk-caret-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+.pk-caret { margin-left: 1px; color: var(--wine-800); animation: pk-caret-blink 900ms steps(1) infinite; }
+@media (prefers-reduced-motion: reduce) { .pk-caret { animation: none; } }
+
 /* ── Слайдер калькулятора: винный accent, крупная зона ── */
 .pk-range {
   -webkit-appearance: none; appearance: none;

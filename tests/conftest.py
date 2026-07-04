@@ -82,6 +82,20 @@ class FakeLLM:
             total_tokens=42,
         )
 
+    async def stream(self, *, system, history, max_tokens):
+        """Эмулирует потоковую генерацию: реплику под цель шага отдаём по словам
+        (как GigaChat client.achat.stream). Только текст, без function calling."""
+        self.calls += 1
+        if self.fail:
+            raise RuntimeError("LLM down")
+        goal = next((k for k, v in prompts.STEP_GOALS.items() if v in system), "SERVICE")
+        text = prompts.FALLBACK_REPLIES.get(goal, prompts.FALLBACK_REPLIES["SERVICE"]).format(
+            name="Клиника Демо-Дент", phone_display="+7 (843) 000-00-00"
+        )
+        words = text.split(" ")
+        for i, w in enumerate(words):
+            yield w if i == 0 else " " + w
+
 
 class FakeNotifier:
     def __init__(self):

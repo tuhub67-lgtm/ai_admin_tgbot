@@ -80,11 +80,28 @@ def _extract_function_call(message) -> dict | None:
     return dict(args) if isinstance(args, dict) else None
 
 
-def _extract_text(message) -> str:
-    parts = message.content or []
+def _content_text(message) -> str:
+    """Склеивает текстовые части сообщения БЕЗ обрезки пробелов — важно для
+    потока: пробел между словами часто приходит отдельным чанком."""
+    parts = getattr(message, "content", None) or []
     if isinstance(parts, str):
-        return parts.strip()
-    return "".join(getattr(p, "text", None) or "" for p in parts).strip()
+        return parts
+    return "".join(getattr(p, "text", None) or "" for p in parts)
+
+
+def _extract_text(message) -> str:
+    return _content_text(message).strip()
+
+
+def _chunk_text(chunk) -> str:
+    """Текст-дельта из потокового чанка (messages[0].content[].text).
+
+    Контракт совпадает с ответом create(): чанк несёт messages[0] с content-
+    частями. Извлекаем защитно — на неожиданной форме просто вернём пусто."""
+    messages = getattr(chunk, "messages", None) or []
+    if not messages:
+        return ""
+    return _content_text(messages[0])
 
 
 class GigaChatLLM:
@@ -139,6 +156,44 @@ class GigaChatLLM:
                 if attempt < RETRIES:
                     await asyncio.sleep(1 + attempt)
         raise RuntimeError(f"GigaChat недоступен после {RETRIES + 1} попыток: {last_error}")
+
+    async def stream(
+        self,
+        *,
+        system: str,
+        history: list[dict[str, str]],
+        max_tokens: int,
+    ):
+        """Потоковая реплика Анны (achat.stream). Только текст, без function
+        calling. Историю подаём УЖЕ обезличенной — ПДн в модель не уходят.
+
+        Ретраи не делаем: частично отданный поток нельзя переиграть с середины.
+        Ошибку пробрасываем — тест-прогон покажет запасной ответ и не упадёт.
+        Расход токенов из финального чанка пишем в SQLite (как в generate)."""
+        messages = [ChatMessage(role="system", content=system)]
+        for m in history:
+            messages.append(ChatMessage(role=m["role"], content=m["content"]))
+
+        payload = ChatCompletionRequest(
+            model=self.settings.gigachat_model,
+            messages=messages,
+            model_options=ChatModelOptions(temperature=0.5, max_tokens=max_tokens),
+        )
+
+        total = 0
+        async for chunk in self._client.achat.stream(payload):
+            delta = _chunk_text(chunk)
+            if delta:
+                yield delta
+            usage = getattr(chunk, "usage", None)
+            if usage is not None:
+                total = getattr(usage, "total_tokens", None) or total
+
+        if total and self.db:
+            try:
+                await self.db.add_token_usage(0, 0, total)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Не записан расход токенов (stream): {}", e)
 
     async def _parse_response(self, response) -> LLMResult:
         total = 0

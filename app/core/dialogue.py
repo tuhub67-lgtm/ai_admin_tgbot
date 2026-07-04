@@ -436,6 +436,20 @@ class DialogueEngine:
             reply = await self._llm_reply(session, clinic, new_step)
         return await self._reply(session["id"], [reply])
 
+    async def stream_reply(self, session: dict, clinic: Clinic, goal: str):
+        """Как _llm_reply, но ПОТОКОВО — для тест-прогона онбординга: yield-ит
+        дельты текста Анны по мере генерации. Использует тот же системный промпт
+        (конфиг клиники + свободные окна) и ту же ОБЕЗЛИЧЕННУЮ историю, что и
+        обычный ход, — ПДн в GigaChat не уходят. Сбой LLM пробрасывается наверх
+        (оркестратор покажет запасной ответ), поток не молчит и не падает."""
+        history = await self._history_for_llm(session, self._session_fields(session))
+        async for delta in self.llm.stream(
+            system=self._build_system(clinic, goal),
+            history=history,
+            max_tokens=self.settings.max_response_tokens,
+        ):
+            yield delta
+
     async def _llm_reply(self, session: dict, clinic: Clinic, goal: str) -> str:
         history = await self._history_for_llm(session, self._session_fields(session))
         try:
