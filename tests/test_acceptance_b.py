@@ -137,6 +137,20 @@ async def test_offtopic_declined(engine, db, session, notifier):
     assert notifier.sent == []
 
 
+# --- 9. Повторный номер → пометка «повторное обращение» --------------------
+
+async def test_repeat_number_flagged(leads, db, notifier):
+    s1 = await db.get_or_create_session("demo-dent", "telegram", "rep-1", "landing")
+    await leads.submit(s1, {"name": "Ольга", "phone": "+79175550011", "service": "Профгигиена",
+                            "urgency": "planned"}, status="pending")
+    assert "🔁 Повторное" not in notifier.sent[-1][1]
+
+    s2 = await db.get_or_create_session("demo-dent", "telegram", "rep-2", "sms")
+    await leads.submit(s2, {"name": "Ольга", "phone": "+79175550011", "service": "Профгигиена",
+                            "urgency": "planned"}, status="pending")
+    assert "🔁 Повторное" in notifier.sent[-1][1]  # тот же номер во второй раз
+
+
 # --- 8. Молчание → один follow-up через 2ч, не больше ----------------------
 
 async def test_single_followup_after_idle(engine, db, session, clinics):
