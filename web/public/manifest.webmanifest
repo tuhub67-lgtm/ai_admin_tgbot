@@ -1,0 +1,16 @@
+{
+  "name": "Подхват AI+",
+  "short_name": "Подхват",
+  "description": "Кабинет клиники: срочные обращения, возвращённые рубли, настройки Анны.",
+  "lang": "ru",
+  "dir": "ltr",
+  "start_url": "/app",
+  "scope": "/app",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#6F0D1E",
+  "background_color": "#FCF2DC",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -96,3 +96,17 @@ html.js-anim .reveal.is-visible { opacity: 1; transform: none; }
   /* На планшете шаги и trust — по 2 в ряд, но без перегруза */
   .pk-trust-grid { grid-template-columns: 1fr 1fr !important; }
 }
+
+/* ── Кабинет (/app): десктопная навигация в шапке, мобильная — снизу ── */
+.pk-cab-main { padding-top: 8px; padding-bottom: 48px; }
+.pk-cab-botnav { display: none; }
+
+@media (max-width: 720px) {
+  .pk-cab-topnav { display: none !important; }
+  .pk-cab-botnav {
+    display: flex; gap: 4px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  }
+  .pk-cab-main { padding-bottom: 88px; }
+}
