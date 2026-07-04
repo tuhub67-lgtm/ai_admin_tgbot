@@ -43,8 +43,34 @@ class DigestService:
             id="daily_digest",
             misfire_grace_time=3600,
         )
+        # Еженедельный отчёт владельцу: понедельник 09:00 МСК.
+        scheduler.add_job(
+            self.send_weekly_reports,
+            CronTrigger(day_of_week="mon", hour=9, minute=0, timezone=MSK),
+            id="weekly_report",
+            misfire_grace_time=3600,
+        )
         scheduler.start()
         return scheduler
+
+    async def send_weekly_reports(self) -> None:
+        from app.report_weekly import build_weekly_report
+
+        if not self.settings.owner_tg_id:
+            return
+        parts = []
+        for clinic in self.clinics.values():
+            try:
+                parts.append(await build_weekly_report(self.db, clinic))
+            except Exception as e:
+                logger.error("Недельный отчёт для {} не собран: {}", clinic.slug, e)
+        if parts:
+            try:
+                await self.notifier.send_group_message(
+                    self.settings.owner_tg_id, "\n\n".join(parts)[:4000]
+                )
+            except Exception as e:
+                logger.error("Недельный отчёт владельцу не отправлен: {}", e)
 
     async def send_daily_digests(self) -> None:
         today = now_msk().strftime("%Y-%m-%d")

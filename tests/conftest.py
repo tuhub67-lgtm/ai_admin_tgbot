@@ -86,9 +86,11 @@ class FakeLLM:
 class FakeNotifier:
     def __init__(self):
         self.sent: list[tuple[int, str]] = []
+        self.buttons: list[list[tuple[str, str]] | None] = []
 
-    async def send_group_message(self, chat_id: int, text: str) -> None:
+    async def send_group_message(self, chat_id: int, text: str, buttons=None) -> None:
         self.sent.append((chat_id, text))
+        self.buttons.append(buttons)
 
 
 class FakeSms:

@@ -28,7 +28,26 @@ CHANNEL_LABELS = {
 
 
 class GroupNotifier(Protocol):
-    async def send_group_message(self, chat_id: int, text: str) -> None: ...
+    async def send_group_message(
+        self, chat_id: int, text: str, buttons: list[tuple[str, str]] | None = None
+    ) -> None: ...
+
+
+def lead_buttons(lead_id: int, status: str, is_urgent: bool) -> list[tuple[str, str]]:
+    """Кнопки Штаба под карточкой: (подпись, callback_data). Framework-agnostic —
+    в InlineKeyboardMarkup их превращает TelegramNotifier."""
+    if is_urgent:
+        return [
+            (f"Перезвонить сейчас · {lead_id}", f"lead:callback:{lead_id}"),
+            ("Обработан", f"lead:booked:{lead_id}"),
+        ]
+    row: list[tuple[str, str]] = []
+    if status == "pending":
+        row.append(("✅ Подтвердить запись", f"lead:confirm:{lead_id}"))
+    row.append(("Записан", f"lead:booked:{lead_id}"))
+    row.append(("Перезвонить", f"lead:callback:{lead_id}"))
+    row.append(("Потерян", f"lead:lost:{lead_id}"))
+    return row
 
 
 def channel_label(channel: str, source: str) -> str:
@@ -152,8 +171,9 @@ class LeadService:
             wants_callback=wants_callback,
             status=status,
         )
+        buttons = lead_buttons(lead_id, status, is_urgent)
         try:
-            await self.notifier.send_group_message(clinic.tg_group_id, card)
+            await self.notifier.send_group_message(clinic.tg_group_id, card, buttons)
         except Exception as e:
             logger.error(
                 "Не удалось отправить карточку лида #{} в группу {}: {}",

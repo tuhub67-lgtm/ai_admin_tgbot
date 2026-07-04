@@ -28,6 +28,8 @@ from app.core.dialogue import DialogueEngine
 from app.core.llm import GigaChatLLM
 from app.db import Database
 from app.digest import DigestService
+from app.followups import run_followups
+from app.lead_ops import LeadOps
 from app.leads import LeadService
 from app.missed_calls import SmsAeroClient
 from app.missed_calls import router as novofon_router
@@ -66,6 +68,7 @@ async def lifespan(app: FastAPI):
     bot = Bot(token=settings.bot_token)
     notifier = TelegramNotifier(bot)
     leads = LeadService(db, clinics, notifier)
+    lead_ops = LeadOps(db, clinics, notifier)
     engine = DialogueEngine(db, llm, clinics, leads, settings)
     sms = SmsAeroClient(settings.smsaero_email, settings.smsaero_api_key)
 
@@ -84,9 +87,10 @@ async def lifespan(app: FastAPI):
     app.state.sms = sms
     app.state.bot = bot
     app.state.bot_username = bot_username
+    app.state.lead_ops = lead_ops
 
     dp = Dispatcher()
-    dp.include_router(create_router(engine, db, clinics, settings))
+    dp.include_router(create_router(engine, db, clinics, settings, lead_ops))
     polling_task = asyncio.create_task(
         dp.start_polling(bot, handle_signals=False, close_bot_session=False)
     )
@@ -104,6 +108,20 @@ async def lifespan(app: FastAPI):
 
     digest = DigestService(db, clinics, notifier, settings)
     scheduler = digest.start_scheduler()
+
+    # Молчащим пациентам — один follow-up через 2ч (проверяем каждые 30 мин).
+    async def _followup_job() -> None:
+        async def _tg_send(external_id: str, text: str) -> None:
+            await bot.send_message(chat_id=int(external_id), text=text)
+
+        try:
+            await run_followups(db, clinics, {"telegram": _tg_send})
+        except Exception as e:  # noqa: BLE001
+            logger.error("Follow-up job упал: {}", e)
+
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    scheduler.add_job(_followup_job, IntervalTrigger(minutes=30), id="followups")
 
     logger.info(
         "Подхват запущен: клиник {}, бот @{}, модель {}",

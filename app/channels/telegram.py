@@ -34,14 +34,29 @@ _human_keyboard = InlineKeyboardMarkup(
 )
 
 
+def _markup(buttons: list[tuple[str, str]] | None) -> InlineKeyboardMarkup | None:
+    """[(подпись, callback_data), …] → клавиатура по 2 кнопки в ряд."""
+    if not buttons:
+        return None
+    rows, row = [], []
+    for label, data in buttons:
+        row.append(InlineKeyboardButton(text=label, callback_data=data))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 class TelegramNotifier:
     """Отправка сообщений в группы клиник (карточки лидов, дайджесты)."""
 
     def __init__(self, bot):
         self.bot = bot
 
-    async def send_group_message(self, chat_id: int, text: str) -> None:
-        await self.bot.send_message(chat_id=chat_id, text=text)
+    async def send_group_message(self, chat_id: int, text: str, buttons=None) -> None:
+        await self.bot.send_message(chat_id=chat_id, text=text, reply_markup=_markup(buttons))
 
 
 def parse_start_payload(
@@ -62,11 +77,19 @@ def parse_start_payload(
     return slug, source
 
 
+def _clinic_by_group(clinics: dict[str, Clinic], chat_id: int) -> Clinic | None:
+    for c in clinics.values():
+        if c.tg_group_id == chat_id:
+            return c
+    return None
+
+
 def create_router(
     engine: DialogueEngine,
     db: Database,
     clinics: dict[str, Clinic],
     settings: Settings,
+    lead_ops=None,
 ) -> Router:
     router = Router(name="podkhvat")
 
@@ -95,6 +118,47 @@ def create_router(
         if not settings.owner_tg_id or message.from_user.id != settings.owner_tg_id:
             return
         await message.answer(await _build_stats(db, clinics))
+
+    @router.message(Command("week"), F.chat.type == ChatType.PRIVATE)
+    async def week(message: Message) -> None:
+        # Ручной еженедельный отчёт владельцу.
+        if not settings.owner_tg_id or message.from_user.id != settings.owner_tg_id:
+            return
+        from app.report_weekly import build_weekly_report
+
+        parts = [await build_weekly_report(db, c) for c in clinics.values()]
+        await message.answer("\n\n".join(parts))
+
+    @router.callback_query(F.data.startswith("lead:"))
+    async def lead_action(callback: CallbackQuery) -> None:
+        # Кнопки Штаба под карточкой лида: подтвердить/записан/перезвонить/потерян.
+        await callback.answer()
+        if lead_ops is None or callback.message is None:
+            return
+        try:
+            _, action, lead_id_s = callback.data.split(":", 2)
+            lead_id = int(lead_id_s)
+        except (ValueError, AttributeError):
+            return
+        clinic = _clinic_by_group(clinics, callback.message.chat.id)
+        if clinic is None:
+            return
+        status = {"confirm": "confirmed", "booked": "booked",
+                  "callback": "callback", "lost": "lost"}.get(action)
+        if status is None:
+            return
+        if action == "confirm":
+            lead = await lead_ops.confirm(clinic.slug, lead_id)
+        else:
+            lead = await lead_ops.set_status(clinic.slug, lead_id, status)
+        if lead is None:
+            return
+        labels = {"confirmed": "✅ Запись подтверждена",
+                  "booked": "✅ Отмечено: записан", "callback": "📞 На перезвон",
+                  "lost": "Отмечено: потерян"}
+        await callback.bot.send_message(
+            chat_id=callback.message.chat.id, text=f"{labels[status]} (лид #{lead_id})"
+        )
 
     @router.callback_query(F.data == CALL_HUMAN_CB)
     async def call_human(callback: CallbackQuery) -> None:
