@@ -74,7 +74,7 @@ export function LeadForm() {
 
   if (status === 'success') {
     return (
-      <Section id="lead" bg="var(--surface-subtle)">
+      <Section id="lead" bg="var(--surface)">
         <div
           className="facet-card"
           role="status"

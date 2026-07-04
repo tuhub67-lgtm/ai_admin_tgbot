@@ -9,8 +9,8 @@ const prefersReduced = () =>
   typeof window !== 'undefined' && window.matchMedia &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-function animate(from, to, dur, onUpdate) {
-  if (prefersReduced() || dur <= 0 || from === to) { onUpdate(to); return () => {}; }
+function animate(from, to, dur, onUpdate, onDone) {
+  if (prefersReduced() || dur <= 0 || from === to) { onUpdate(to); onDone && onDone(); return () => {}; }
   let raf;
   const t0 = performance.now();
   const tick = (t) => {
@@ -18,7 +18,7 @@ function animate(from, to, dur, onUpdate) {
     const e = 1 - Math.pow(1 - p, 3); // ease-out
     onUpdate(from + (to - from) * e);
     if (p < 1) raf = requestAnimationFrame(tick);
-    else onUpdate(to);
+    else { onUpdate(to); onDone && onDone(); }
   };
   raf = requestAnimationFrame(tick);
   return () => cancelAnimationFrame(raf);
@@ -33,10 +33,17 @@ export function useCountUp(value, { particles = false } = {}) {
   const prev = useRef(0);
   const ref = useRef(null);
 
+  // Золотая вспышка (brightness bump) в конце счёта
+  const flash = () => {
+    if (prefersReduced()) return;
+    setBumped(false);
+    requestAnimationFrame(() => setBumped(true));
+  };
+
   useEffect(() => {
     const el = ref.current;
     if (!el || started.current) return;
-    const run = () => { started.current = true; prev.current = value; animate(0, value, 600, setDisplay); };
+    const run = () => { started.current = true; prev.current = value; animate(0, value, 600, setDisplay, flash); };
     if (!('IntersectionObserver' in window)) { run(); return; }
     const io = new IntersectionObserver((entries) => {
       entries.forEach((e) => { if (e.isIntersecting && !started.current) { run(); io.unobserve(el); } });

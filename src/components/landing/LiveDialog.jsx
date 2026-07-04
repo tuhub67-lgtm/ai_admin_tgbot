@@ -50,7 +50,7 @@ export function LiveDialog() {
   }, []);
 
   return (
-    <Section>
+    <Section bg="var(--surface)">
       <p className="lp-overline">Живой диалог</p>
       <h2 className="lp-h2">Ночью пациент не уходит к соседям</h2>
       <p className="lp-lead">Запрос пришёл в 00:41. Анна ответила, подобрала утреннее время и придержала запись — не потеряв пациента до утра.</p>

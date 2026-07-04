@@ -1,9 +1,10 @@
 import React from 'react';
 
-/* Обёртка секции лендинга: фон + вертикальные отступы + контейнер по центру. */
-export function Section({ id, bg, tight, containerStyle, children, style }) {
+/* Обёртка секции лендинга: фон + вертикальные отступы + контейнер по центру.
+   theme="dark" переключает семантические токены внутри секции (тёмный премиум-блок). */
+export function Section({ id, bg, tight, containerStyle, children, style, theme }) {
   return (
-    <section id={id} className="lp-reveal" style={{ background: bg || 'var(--bg)', ...style }}>
+    <section id={id} className="lp-reveal" data-theme={theme} style={{ background: bg || 'var(--bg)', ...style }}>
       <div
         className={`lp-container lp-section${tight ? ' lp-section--tight' : ''}`}
         style={containerStyle}

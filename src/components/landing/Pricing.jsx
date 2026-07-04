@@ -34,7 +34,7 @@ export function Pricing() {
       <div className="lp-grid-2" style={{ marginTop: 'var(--sp-8)', alignItems: 'stretch' }}>
         {/* Пилот */}
         <div
-          className="facet-card"
+          className="facet-card lp-lift"
           style={{ background: 'var(--surface)', boxShadow: 'var(--shadow-raised)', borderRadius: 'var(--r-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
         >
           <div style={{ background: 'var(--surface-brand)', color: 'var(--text-on-brand)', padding: 'var(--sp-5) var(--sp-6)' }}>
@@ -72,6 +72,7 @@ export function Pricing() {
 
         {/* Подписка */}
         <div
+          className="lp-lift"
           style={{ background: 'var(--surface)', border: '1px solid var(--border-strong)', borderRadius: 'var(--r-card)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
         >
           <div style={{ padding: 'var(--sp-5) var(--sp-6)', borderBottom: '1px solid var(--border)' }}>

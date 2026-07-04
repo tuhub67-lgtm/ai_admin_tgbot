@@ -1,8 +1,15 @@
 import React from 'react';
 import { Icon } from '../../design/components/core/Icon.jsx';
 import { Button } from '../../design/components/controls/Button.jsx';
+import { OrnamentSolar } from '../../design/components/core/BearMark.jsx';
 import { Section } from './Section.jsx';
 import { TG_USERNAME, TG_URL, isPlaceholder } from '../../config.js';
+
+// Тёмный премиум-блок «Покой»: уголь → глубокий винный, винное сияние сверху-справа.
+// Только токены; data-theme="dark" переключает семантику текста/поверхностей внутри секции.
+const TRUST_BG =
+  'radial-gradient(90% 70% at 82% -15%, color-mix(in srgb, var(--wine-800) 55%, transparent), transparent 60%),' +
+  ' linear-gradient(165deg, var(--charcoal) 28%, var(--wine-950))';
 
 const items = [
   { icon: 'server', title: 'Данные — в России', text: 'Серверы в РФ. База пациентов и записи разговоров не покидают страну — по 152-ФЗ.' },
@@ -14,15 +21,20 @@ const items = [
 export function Trust() {
   const tgPlaceholder = isPlaceholder(TG_USERNAME);
   return (
-    <Section bg="var(--surface-subtle)">
+    <Section theme="dark" bg={TRUST_BG} style={{ color: 'var(--text)', position: 'relative', overflow: 'hidden' }}>
+      <OrnamentSolar
+        aria-hidden="true"
+        size={480}
+        style={{ position: 'absolute', bottom: -140, left: -120, color: 'var(--gold-400)', opacity: 0.07, pointerEvents: 'none' }}
+      />
       <p className="lp-overline">Покой</p>
       <h2 className="lp-h2">Ничего не потеряно. И никуда не утекло</h2>
 
       <div
-        style={{ display: 'grid', gap: 'var(--sp-4)', marginTop: 'var(--sp-8)', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))' }}
+        style={{ display: 'grid', gap: 'var(--sp-4)', marginTop: 'var(--sp-8)', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', position: 'relative' }}
       >
         {items.map((it) => (
-          <div key={it.title} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-card)', padding: 'var(--sp-6)', boxShadow: 'var(--shadow-card)' }}>
+          <div key={it.title} className="lp-lift" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-card)', padding: 'var(--sp-6)', boxShadow: 'var(--shadow-card)' }}>
             <span
               aria-hidden="true"
               style={{ display: 'inline-flex', width: 48, height: 48, alignItems: 'center', justifyContent: 'center', background: 'var(--surface-brand)', color: 'var(--gold-300)', borderRadius: 'var(--r-card-sm)' }}

@@ -2,9 +2,21 @@ import React from 'react';
 import { Button } from '../../design/components/controls/Button.jsx';
 import { Icon } from '../../design/components/core/Icon.jsx';
 import { MoneyFigure } from '../../design/components/money/MoneyFigure.jsx';
+import { OrnamentSolar } from '../../design/components/core/BearMark.jsx';
 import { CtaGlow } from '../common/CtaGlow.jsx';
 import { scrollToId } from './Section.jsx';
 import { CITY } from '../../config.js';
+
+// Атмосфера героя: тёплое золотое сияние справа-сверху + едва заметный винный слева,
+// поверх слоновой кости. Только CSS-градиенты из токенов, текст остаётся тёмным по светлому.
+const HERO_ATMOSPHERE = {
+  background:
+    'radial-gradient(90% 65% at 80% -10%, color-mix(in srgb, var(--gold-300) 30%, transparent), transparent 58%),' +
+    ' radial-gradient(70% 55% at 4% 6%, color-mix(in srgb, var(--wine-800) 9%, transparent), transparent 55%),' +
+    ' var(--bg)',
+  position: 'relative',
+  overflow: 'hidden',
+};
 
 const chips = [
   { icon: 'shield', text: '152-ФЗ' },
@@ -14,13 +26,19 @@ const chips = [
 
 export function Hero() {
   return (
-    <section style={{ background: 'var(--bg)' }}>
-      <div className="lp-container lp-section">
+    <section style={HERO_ATMOSPHERE}>
+      {/* Солнечный орнамент — едва заметная фактура в пустом углу (декор, currentColor) */}
+      <OrnamentSolar
+        aria-hidden="true"
+        size={440}
+        style={{ position: 'absolute', top: -80, right: -90, color: 'var(--gold-500)', opacity: 0.06, pointerEvents: 'none', zIndex: 0 }}
+      />
+      <div className="lp-container lp-section" style={{ position: 'relative', zIndex: 1 }}>
         <div className="lp-hero-grid">
           {/* Левая колонка — оффер */}
-          <div>
+          <div className="lp-hero-in">
             <p className="lp-overline" style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-2)', color: 'var(--wine-800)' }}>
-              <span aria-hidden="true" style={{ width: 20, height: 4, background: 'var(--gold-400)' }} />
+              <span className="lp-gold-metal" aria-hidden="true" style={{ width: 20, height: 4, borderRadius: 'var(--r-pill)' }} />
               ИИ-администратор для стоматологии · {CITY}
             </p>
 
@@ -67,7 +85,7 @@ export function Hero() {
 
           {/* Правая колонка — доказательство (белая карточка, фацет) */}
           <aside
-            className="facet-card"
+            className="facet-card lp-hero-in lp-hero-in--delay"
             style={{
               background: 'var(--surface)', boxShadow: 'var(--shadow-raised)',
               borderRadius: 'var(--r-card)', padding: 'var(--sp-6)', minWidth: 0,

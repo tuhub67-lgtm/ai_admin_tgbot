@@ -22,7 +22,7 @@ const steps = [
 
 export function HowItWorks() {
   return (
-    <Section id="how" bg="var(--surface-subtle)">
+    <Section id="how" bg="var(--bg)">
       <p className="lp-overline">Как работает</p>
       <h2 className="lp-h2">Три шага — и пропущенный звонок снова пациент</h2>
 
@@ -30,6 +30,7 @@ export function HowItWorks() {
         {steps.map((s, i) => (
           <li
             key={s.title}
+            className="lp-lift"
             style={{
               background: 'var(--surface)', border: '1px solid var(--border)',
               borderRadius: 'var(--r-card)', padding: 'var(--sp-6)', boxShadow: 'var(--shadow-card)',

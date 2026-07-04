@@ -79,6 +79,20 @@
 }
 .lp-pulse-once { animation: lp-pulse-once 400ms var(--anim-ease) 1; }
 
+/* ── Глубина/живость: подъём карточек при наведении ───────────────────── */
+.lp-lift { transition: transform 300ms var(--anim-ease), box-shadow 300ms var(--anim-ease); }
+@media (hover: hover) {
+  .lp-lift:hover { transform: translateY(-4px); box-shadow: var(--shadow-raised); }
+}
+
+/* Появление контента героя при загрузке (один раз, ≤500ms) */
+@keyframes lp-hero-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+.lp-hero-in { animation: lp-hero-in 460ms var(--anim-ease) both; }
+.lp-hero-in--delay { animation-delay: 120ms; }
+
+/* Металлический градиент золота — ТОЛЬКО декоративные акценты/разделители, не текст, без цикла */
+.lp-gold-metal { background-image: linear-gradient(135deg, var(--gold-300), var(--gold-500)); }
+
 /* ── Пункт 4: scroll-reveal секций. База — ВИДИМО (контент не пропадёт). ── */
 .lp-reveal { }  /* по умолчанию opacity:1 (ничего не задаём) */
 

@@ -22,7 +22,7 @@ export function RuStoreSection() {
   }, []);
 
   return (
-    <Section id="rustore" bg="var(--surface-subtle)" tight>
+    <Section id="rustore" bg="var(--bg)" tight>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-8)', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
         <div style={{ maxWidth: '46ch' }}>
           <p className="lp-overline">Приложение</p>

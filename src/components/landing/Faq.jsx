@@ -26,7 +26,7 @@ const faq = [
 
 export function Faq() {
   return (
-    <Section id="faq">
+    <Section id="faq" bg="var(--surface)">
       <p className="lp-overline">Вопросы</p>
       <h2 className="lp-h2">Коротко о главном</h2>
 

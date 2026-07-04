@@ -27,7 +27,7 @@ export default function Landing() {
       <main>
         <Hero />
 
-        <Section id="calc" bg="var(--surface-subtle)">
+        <Section id="calc" bg="var(--surface)">
           <p className="lp-overline">Калькулятор потерь</p>
           <h2 className="lp-h2">Посчитайте, сколько уносят пропущенные</h2>
           <p className="lp-lead">Двигайте ползунки — считаем по вашим цифрам. Формула открыта, без звёздочек и сносок.</p>
