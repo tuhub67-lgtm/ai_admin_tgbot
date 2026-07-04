@@ -15,3 +15,4 @@ services:
   - {name: "Имплантация", price_from: null}   # null = «цену назовёт врач»
 sms_sender: "DemoDent"
 novofon_number: "+78430000001"
+clinic_token: "demo-dent-token-123"   # персональный токен вебхука телефонии (в URL)

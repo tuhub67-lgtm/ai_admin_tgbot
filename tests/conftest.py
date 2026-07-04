@@ -123,6 +123,7 @@ def settings() -> Settings:
         owner_tg_id=777,
         gigachat_credentials="test-key",
         novofon_webhook_secret="hook-secret",
+        jwt_secret="test-jwt-secret-please-change",
     )
 
 

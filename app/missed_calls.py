@@ -24,8 +24,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 
-from app.config import Clinic, clinic_by_novofon_number
-from app.utils import mask_phone, normalize_phone
+from app.config import Clinic, clinic_by_novofon_number, clinic_by_token
+from app.utils import mask_phone, normalize_phone, now_msk
 
 router = APIRouter(tags=["novofon"])
 
@@ -137,14 +137,24 @@ async def novofon_echo(request: Request):
 async def novofon_webhook(request: Request):
     state = request.app.state
 
-    # Fail closed: эндпоинт рассылает платные SMS — без настроенного секрета
-    # не обрабатываем ничего.
-    if not state.settings.novofon_webhook_secret:
-        logger.error("NOVOFON_WEBHOOK_SECRET не задан — вебхук отклонён")
-        return JSONResponse({"error": "webhook secret is not configured"}, status_code=403)
-    secret = request.query_params.get("secret", "")
-    if not hmac.compare_digest(secret, state.settings.novofon_webhook_secret):
-        return JSONResponse({"error": "forbidden"}, status_code=403)
+    # Авторизация вебхука двумя способами:
+    # 1) персональный clinic_token в URL (предпочтительно, резолвит клинику);
+    # 2) обратная совместимость — глобальный NOVOFON_WEBHOOK_SECRET + номер DID.
+    token = request.query_params.get("clinic_token", "")
+    token_clinic: Clinic | None = None
+    if token:
+        token_clinic = clinic_by_token(state.clinics, token)
+        if token_clinic is None:
+            return JSONResponse({"error": "invalid clinic_token"}, status_code=403)
+    else:
+        # Fail closed: эндпоинт рассылает платные SMS — без секрета/токена ничего
+        # не обрабатываем.
+        if not state.settings.novofon_webhook_secret:
+            logger.error("NOVOFON_WEBHOOK_SECRET не задан и нет clinic_token — вебхук отклонён")
+            return JSONResponse({"error": "webhook auth is not configured"}, status_code=403)
+        secret = request.query_params.get("secret", "")
+        if not hmac.compare_digest(secret, state.settings.novofon_webhook_secret):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
 
     form = dict((await request.form()).items())
     event = form.get("event", "")
@@ -170,7 +180,8 @@ async def novofon_webhook(request: Request):
     if not call_id or not caller_raw:
         return {"status": "ignored"}
 
-    clinic = clinic_by_novofon_number(state.clinics, called_did)
+    # Клиника: из токена (если был) либо по набранному номеру.
+    clinic = token_clinic or clinic_by_novofon_number(state.clinics, called_did)
     if clinic is None:
         logger.warning("Novofon: неизвестный номер клиники {}", called_did)
         return {"status": "unknown clinic"}
@@ -182,28 +193,52 @@ async def novofon_webhook(request: Request):
 
     caller = normalize_phone(caller_raw)
     masked = mask_phone(caller or caller_raw)
+    date = now_msk().strftime("%Y-%m-%d")
     logger.info("Пропущенный звонок в {} от {}", clinic.slug, masked)
 
     sms_ok = False
+    reason = ""
     bot_username = await _resolve_bot_username(state)
-    if caller and state.sms.configured and bot_username:
-        deep_link = f"https://t.me/{bot_username}?start={clinic.slug}__sms"
-        try:
-            await state.sms.send_sms(
-                caller, build_sms_text(clinic, deep_link), clinic.sms_sender
-            )
-            await state.db.mark_sms_sent(call_id)
-            sms_ok = True
-        except Exception as e:
-            logger.error("SMS по пропущенному звонку не отправлена ({}): {}", masked, e)
+    if not caller:
+        reason = "номер не распознан"
     elif not state.sms.configured:
+        reason = "SMS не настроен"
         logger.warning("SMS Aero не настроен — SMS по пропущенному звонку не отправлена")
     elif not bot_username:
+        reason = "username бота неизвестен"
         logger.error("Username бота неизвестен — SMS с битой ссылкой не отправляем")
+    elif await state.db.sms_count_today(clinic.slug, date) >= state.settings.sms_daily_cap_per_clinic:
+        # Защита баланса: превышен суточный лимит SMS на клинику → стоп + сигнал.
+        reason = "превышен суточный лимит SMS"
+        logger.error("SMS-лимит клиники {} исчерпан за {} — SMS не отправлена", clinic.slug, date)
+        try:
+            await state.notifier.send_group_message(
+                clinic.tg_group_id,
+                "⚠️ Достигнут суточный лимит SMS. Возвраты пропущенных приостановлены "
+                "до завтра — проверьте, нет ли аномалии. Перезвоните пациентам вручную.",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    elif not await state.db.try_reserve_auto_message(clinic.slug, caller, date):
+        # Дневной лимит: не более 1 автосообщения на номер за 24ч.
+        reason = "повторный пропущенный с этого номера сегодня"
+        logger.info("Автосообщение на {} уже отправлено сегодня — второе не шлём", masked)
+    else:
+        deep_link = f"https://t.me/{bot_username}?start={clinic.slug}__sms"
+        try:
+            await state.sms.send_sms(caller, build_sms_text(clinic, deep_link), clinic.sms_sender)
+            await state.db.mark_sms_sent(call_id)
+            await state.db.incr_sms_count(clinic.slug, date)
+            await state.db.record_delivery(clinic.slug, call_id, "sms", True)
+            sms_ok = True
+        except Exception as e:
+            reason = "ошибка отправки SMS"
+            await state.db.record_delivery(clinic.slug, call_id, "sms", False)
+            await state.db.record_incident(clinic.slug, call_id)
+            logger.error("SMS по пропущенному звонку не отправлена ({}): {}", masked, e)
 
-    note = (
-        f"📵 Пропущенный звонок от {masked}, "
-        + ("SMS отправлена" if sms_ok else "SMS НЕ отправлена")
+    note = f"📵 Пропущенный звонок от {masked}, " + (
+        "SMS отправлена" if sms_ok else f"SMS НЕ отправлена ({reason})"
     )
     try:
         await state.notifier.send_group_message(clinic.tg_group_id, note)

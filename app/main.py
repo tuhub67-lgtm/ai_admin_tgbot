@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+from app.api import router as cabinet_router
 from app.channels.telegram import TelegramNotifier, create_router
 from app.channels.widget_api import router as widget_router
 from app.config import load_clinics, load_settings
@@ -32,6 +33,7 @@ from app.missed_calls import SmsAeroClient
 from app.missed_calls import router as novofon_router
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+APP_VERSION = "0.2.0"
 
 
 def _setup_logging(level: str, db: Database) -> int:
@@ -142,10 +144,24 @@ def build_api_app(lifespan=None) -> FastAPI:
     )
     app.include_router(widget_router)
     app.include_router(novofon_router)
+    app.include_router(cabinet_router)
 
     @app.get("/health")
     async def health():
-        return {"status": "ok"}
+        # Healthcheck: доступность БД + версия (для мониторинга/деплоя).
+        db = getattr(app.state, "db", None)
+        db_ok = None
+        if db is not None:
+            try:
+                await db._scalar("SELECT 1")
+                db_ok = True
+            except Exception:  # noqa: BLE001
+                db_ok = False
+        return {
+            "status": "degraded" if db_ok is False else "ok",
+            "db": db_ok,
+            "version": APP_VERSION,
+        }
 
     if STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

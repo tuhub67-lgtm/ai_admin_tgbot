@@ -83,6 +83,27 @@ _HUMAN_PATTERNS = [
 ]
 _HUMAN_RE = re.compile("|".join(_HUMAN_PATTERNS), re.IGNORECASE)
 
+# Требование скидки: Анна не торгуется и не обещает — переадресует администратору.
+_DISCOUNT_RE = re.compile(
+    r"скидк\w*|подешевл\w*|дешевл\w*|поторг\w*|\bторг\b|снизь\w*\s+цен|сделай\w*\s+дешев",
+    re.IGNORECASE,
+)
+
+# Нецелевой запрос (не про стоматологию): вежливый отказ + пометка.
+_OFFTOPIC_RE = re.compile(
+    r"пицц\w*|такси|достав\w+\s+еды|курьер|кредит\w*|займ\w*|ставк\w*|казино|"
+    r"ваканси\w*|работа\w*\s+у\s+вас|трудоустр\w*|реклам\w*\s+услуг|прода(м|ю|ть)\b",
+    re.IGNORECASE,
+)
+
+
+def detect_discount(text: str) -> bool:
+    return bool(_DISCOUNT_RE.search(text))
+
+
+def detect_offtopic(text: str) -> bool:
+    return bool(_OFFTOPIC_RE.search(text))
+
 # LLM может вернуть только planned|pain; 'urgent' ставит исключительно
 # детерминированный протокол острой боли.
 _LLM_URGENCY = {"planned", "pain"}
@@ -243,6 +264,19 @@ class DialogueEngine:
         if detect_human_request(text):
             return await self._human_protocol(session, clinic, fields)
 
+        # 3b. Требование скидки — Анна не торгуется и не обещает: переадресует
+        #     администратору, помечает заявку. Шаг не двигаем.
+        if detect_discount(text):
+            fields["discount_requested"] = True
+            await self.db.update_session(session_id, fields=fields)
+            reply = prompts.fallback_reply("DISCOUNT", clinic)
+            return await self._reply(session_id, [reply])
+
+        # 3c. Нецелевой запрос (не про стоматологию) — вежливый отказ, лид не создаём.
+        if detect_offtopic(text):
+            reply = prompts.fallback_reply("OFFTOPIC", clinic)
+            return await self._reply(session_id, [reply])
+
         # 4. Лимит сообщений на сессию: честное завершение с телефоном
         #    клиники. Если телефон уже собран — отдаём клинике частичный лид,
         #    чтобы она перезвонила сама.
@@ -316,7 +350,8 @@ class DialogueEngine:
     async def _confirm(self, session: dict, clinic: Clinic, fields: dict) -> DialogueResult:
         is_night = not self._schedules[clinic.slug].is_open(now_msk())
         await self.db.update_session(session["id"], state="DONE", fields=fields)
-        await self.leads.submit(session, fields, is_night=is_night)
+        # Ручной режим: плановая заявка ждёт подтверждения администратором (pending).
+        await self.leads.submit(session, fields, is_night=is_night, status="pending")
         goal = "CONFIRM_NIGHT" if is_night else "CONFIRM"
         reply = await self._llm_reply(session, clinic, goal)
         result = await self._reply(session["id"], [reply])

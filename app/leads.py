@@ -1,7 +1,8 @@
-"""Доставка лида: мгновенная карточка в TG-группу клиники + запись в SQLite.
+"""Доставка лида: карточка в TG-группу клиники (Штаб) + запись в SQLite.
 
-Полный лог диалога остаётся в таблицах sessions/messages на VPS —
-никаких Google Sheets и внешних таблиц (152-ФЗ).
+Полный лог диалога остаётся в таблицах sessions/messages на VPS (152-ФЗ).
+Тексты пациента редактируются до записи (app.redaction), поэтому резюме и
+transcript уже без медицинских подробностей.
 """
 
 from __future__ import annotations
@@ -36,6 +37,18 @@ def channel_label(channel: str, source: str) -> str:
     return CHANNEL_LABELS.get(channel, channel)
 
 
+def estimate_sum(clinic: Clinic, service: str | None) -> int:
+    """Средний чек услуги: price_from услуги, иначе средний чек клиники (lead_cost)."""
+    if service:
+        low = service.lower()
+        for s in clinic.services:
+            if s.name.lower() in low or low in s.name.lower():
+                if s.price_from:
+                    return s.price_from
+                break
+    return clinic.lead_cost
+
+
 def format_lead_card(
     clinic: Clinic,
     session: dict,
@@ -44,6 +57,11 @@ def format_lead_card(
     is_urgent: bool,
     is_night: bool,
     wants_human: bool,
+    est_sum: int | None = None,
+    resume: str | None = None,
+    is_repeat: bool = False,
+    wants_callback: bool = False,
+    status: str = "new",
 ) -> str:
     urgency = "urgent" if is_urgent else fields.get("urgency")
     lines = [
@@ -53,12 +71,24 @@ def format_lead_card(
         f"Удобное время: {fields.get('preferred_time') or '—'}",
         f"Канал: {channel_label(session['channel'], session['source'])}"
         f" · Источник: {session['source']}",
-        f"⏱ {now_msk().strftime('%d.%m.%Y %H:%M')} · диалог #{session['id']}",
     ]
+    if est_sum and not is_urgent:
+        lines.append(f"Ожидаемая сумма: ≈ {est_sum} ₽")
+    if resume:
+        lines.append(f"Резюме: {resume}")
     if wants_human:
         lines.insert(1, "🙋 Пациент просит живого администратора — свяжитесь как можно скорее")
+    if wants_callback:
+        lines.append("📞 Просит перезвонить (не хочет переписываться)")
+    if is_repeat:
+        lines.append("🔁 Повторное обращение с этого номера")
+    if fields.get("discount_requested"):
+        lines.append("💬 Спрашивал(а) про скидку — цену/условия не обещали, к администратору")
     if is_night:
         lines.append("🌙 Ночная заявка (вне графика клиники)")
+    if status == "pending":
+        lines.append("⏳ Ожидает подтверждения — нажмите «Подтвердить запись»")
+    lines.append(f"⏱ {now_msk().strftime('%d.%m.%Y %H:%M')} · диалог #{session['id']}")
     return "\n".join(lines)
 
 
@@ -68,6 +98,16 @@ class LeadService:
         self.clinics = clinics
         self.notifier = notifier
 
+    async def _build_resume(self, session_id: int) -> str | None:
+        """Короткое резюме из реплик пациента (тексты уже редактированы при записи)."""
+        dialog = await self.db.full_dialog(session_id)
+        user_lines = [m["content"].strip() for m in dialog if m["role"] == "user"]
+        if not user_lines:
+            return None
+        picked = user_lines[-3:]
+        text = " / ".join(s[:60] for s in picked)
+        return text[:200]
+
     async def submit(
         self,
         session: dict,
@@ -76,14 +116,28 @@ class LeadService:
         is_urgent: bool = False,
         is_night: bool = False,
         wants_human: bool = False,
+        wants_callback: bool = False,
+        status: str = "new",
     ) -> int:
         clinic = self.clinics[session["clinic_slug"]]
+        est_sum = estimate_sum(clinic, fields.get("service"))
+        recovered = session["source"] == "sms"
+        resume = await self._build_resume(session["id"])
+
         lead_id = await self.db.create_lead(
             session,
             fields,
             is_urgent=is_urgent,
             is_night=is_night,
             wants_human=wants_human,
+            status=status,
+            est_sum=est_sum,
+            resume=resume,
+            recovered_from_miss=recovered,
+            wants_callback=wants_callback,
+        )
+        is_repeat = await self.db.phone_seen_before(
+            clinic.slug, fields.get("phone") or "", lead_id
         )
         card = format_lead_card(
             clinic,
@@ -92,25 +146,22 @@ class LeadService:
             is_urgent=is_urgent,
             is_night=is_night,
             wants_human=wants_human,
+            est_sum=est_sum,
+            resume=resume,
+            is_repeat=is_repeat,
+            wants_callback=wants_callback,
+            status=status,
         )
         try:
             await self.notifier.send_group_message(clinic.tg_group_id, card)
         except Exception as e:
-            # Лид уже в БД — потерять его нельзя, но группу могли не настроить.
             logger.error(
                 "Не удалось отправить карточку лида #{} в группу {}: {}",
-                lead_id,
-                clinic.tg_group_id,
-                e,
+                lead_id, clinic.tg_group_id, e,
             )
         logger.info(
-            "Лид #{} ({}): {} {}, срочно={}, ночь={}, живой={}",
-            lead_id,
-            clinic.slug,
-            fields.get("name") or "—",
-            mask_phone(fields.get("phone")),
-            is_urgent,
-            is_night,
-            wants_human,
+            "Лид #{} ({}): {} {}, статус={}, срочно={}, ночь={}, живой={}",
+            lead_id, clinic.slug, fields.get("name") or "—",
+            mask_phone(fields.get("phone")), status, is_urgent, is_night, wants_human,
         )
         return lead_id

@@ -12,6 +12,7 @@ from typing import Any
 
 import aiosqlite
 
+from app.redaction import redact
 from app.utils import now_msk
 
 _SCHEMA = """
@@ -53,9 +54,74 @@ CREATE TABLE IF NOT EXISTS leads (
     is_urgent INTEGER NOT NULL DEFAULT 0,
     is_night INTEGER NOT NULL DEFAULT 0,
     wants_human INTEGER NOT NULL DEFAULT 0,
+    -- ЭТАП B: жизненный цикл лида и деньги
+    status TEXT NOT NULL DEFAULT 'new',  -- new|pending|confirmed|booked|callback|lost
+    slot TEXT,                           -- подтверждённый слот (ручной режим)
+    est_sum INTEGER,                     -- ожидаемая сумма (средний чек услуги), ₽
+    resume TEXT,                         -- краткое резюме диалога (уже редактировано)
+    recovered_from_miss INTEGER NOT NULL DEFAULT 0,
+    wants_callback INTEGER NOT NULL DEFAULT 0,
+    patient_notified INTEGER NOT NULL DEFAULT 0,  -- финальное подтверждение отправлено
+    confirmed_at TEXT,
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_leads_clinic_date ON leads(clinic_slug, created_at);
+CREATE INDEX IF NOT EXISTS idx_leads_clinic_status ON leads(clinic_slug, status);
+
+-- Попытки доставки исходящих (каскад MAX→SMS): для streak-надёжности.
+CREATE TABLE IF NOT EXISTS delivery_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    clinic_slug TEXT NOT NULL,
+    ref TEXT NOT NULL,                   -- call_id или lead:<id>
+    channel TEXT NOT NULL,               -- max|sms|telegram
+    success INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_delivery_clinic ON delivery_attempts(clinic_slug, ref);
+
+-- Инциденты доставки: обращение, где ВСЕ каналы упали (для reliability-streak).
+CREATE TABLE IF NOT EXISTS incidents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    clinic_slug TEXT NOT NULL,
+    ref TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    resolved_in_minutes INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_clinic ON incidents(clinic_slug, occurred_at);
+
+-- Magic-link токены входа в кабинет (одноразовые, короткоживущие).
+CREATE TABLE IF NOT EXISTS magic_tokens (
+    token TEXT PRIMARY KEY,
+    clinic_slug TEXT NOT NULL,
+    tg_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+);
+
+-- Дневной лимит автосообщений на номер (не более 1 за 24ч на номер).
+CREATE TABLE IF NOT EXISTS auto_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    clinic_slug TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    date TEXT NOT NULL,                  -- YYYY-MM-DD (МСК)
+    UNIQUE(clinic_slug, phone, date)
+);
+
+-- Суточный счётчик исходящих SMS на клинику (защита баланса).
+CREATE TABLE IF NOT EXISTS sms_counters (
+    clinic_slug TEXT NOT NULL,
+    date TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (clinic_slug, date)
+);
+
+-- Мутабельные настройки клиники из кабинета (поверх YAML-профиля).
+CREATE TABLE IF NOT EXISTS clinic_settings (
+    clinic_slug TEXT PRIMARY KEY,
+    data_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS missed_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +163,29 @@ class Database:
         self._conn = await aiosqlite.connect(self.path)
         self._conn.row_factory = aiosqlite.Row
         await self._conn.executescript(_SCHEMA)
+        await self._migrate()
         await self._conn.commit()
+
+    # Новые колонки на существующих БД (CREATE IF NOT EXISTS их не добавит).
+    _LEAD_COLUMNS = {
+        "status": "TEXT NOT NULL DEFAULT 'new'",
+        "slot": "TEXT",
+        "est_sum": "INTEGER",
+        "resume": "TEXT",
+        "recovered_from_miss": "INTEGER NOT NULL DEFAULT 0",
+        "wants_callback": "INTEGER NOT NULL DEFAULT 0",
+        "patient_notified": "INTEGER NOT NULL DEFAULT 0",
+        "confirmed_at": "TEXT",
+    }
+
+    async def _migrate(self) -> None:
+        rows = await self._fetchall("PRAGMA table_info(leads)")
+        existing = {r["name"] for r in rows}
+        for col, decl in self._LEAD_COLUMNS.items():
+            if col not in existing:
+                # SQLite не разрешает NOT NULL без DEFAULT в ALTER — у всех есть DEFAULT.
+                await self.conn.execute(f"ALTER TABLE leads ADD COLUMN {col} {decl}")
+        await self.conn.commit()
 
     async def close(self) -> None:
         if self._conn:
@@ -175,6 +263,9 @@ class Database:
     # --- Сообщения ------------------------------------------------------
 
     async def add_message(self, session_id: int, role: str, content: str) -> int:
+        # 152-ФЗ: чувствительные фразы пациента (диагнозы/болезни) чистим ДО записи.
+        if role == "user":
+            content = redact(content)
         cur = await self.conn.execute(
             "INSERT INTO messages (session_id, role, content, created_at)"
             " VALUES (?, ?, ?, ?)",
@@ -216,11 +307,17 @@ class Database:
         is_urgent: bool = False,
         is_night: bool = False,
         wants_human: bool = False,
+        status: str = "new",
+        est_sum: int | None = None,
+        resume: str | None = None,
+        recovered_from_miss: bool = False,
+        wants_callback: bool = False,
     ) -> int:
         cur = await self.conn.execute(
             "INSERT INTO leads (session_id, clinic_slug, channel, source, name, phone,"
-            " service, urgency, preferred_time, is_urgent, is_night, wants_human, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " service, urgency, preferred_time, is_urgent, is_night, wants_human,"
+            " status, est_sum, resume, recovered_from_miss, wants_callback, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session["id"],
                 session["clinic_slug"],
@@ -234,11 +331,85 @@ class Database:
                 int(is_urgent),
                 int(is_night),
                 int(wants_human),
+                status,
+                est_sum,
+                resume,
+                int(recovered_from_miss),
+                int(wants_callback),
                 _ts(),
             ),
         )
         await self.conn.commit()
         return cur.lastrowid
+
+    # --- Лиды: чтение/переходы статуса (ВСЕГДА со scope по clinic_slug) --------
+
+    async def list_leads(
+        self, clinic_slug: str, *, status: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM leads WHERE clinic_slug = ?"
+        params: list[Any] = [clinic_slug]
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        sql += " ORDER BY is_urgent DESC, id DESC LIMIT ?"
+        params.append(limit)
+        rows = await self._fetchall(sql, tuple(params))
+        return [dict(r) for r in rows]
+
+    async def get_lead(self, lead_id: int, clinic_slug: str) -> dict[str, Any] | None:
+        """Возвращает лид ТОЛЬКО если он принадлежит этой клинике (иначе None → 403)."""
+        row = await self._fetchone(
+            "SELECT * FROM leads WHERE id = ? AND clinic_slug = ?", (lead_id, clinic_slug)
+        )
+        return dict(row) if row else None
+
+    async def set_lead_status(
+        self, lead_id: int, clinic_slug: str, status: str, *, slot: str | None = None
+    ) -> bool:
+        """Идемпотентно меняет статус в рамках клиники. False — лид не найден/чужой."""
+        sets = "status = ?"
+        params: list[Any] = [status]
+        if slot is not None:
+            sets += ", slot = ?"
+            params.append(slot)
+        if status in ("confirmed", "booked"):
+            sets += ", confirmed_at = COALESCE(confirmed_at, ?)"
+            params.append(_ts())
+        params += [lead_id, clinic_slug]
+        cur = await self.conn.execute(
+            f"UPDATE leads SET {sets} WHERE id = ? AND clinic_slug = ?", tuple(params)
+        )
+        await self.conn.commit()
+        return cur.rowcount > 0
+
+    async def mark_patient_notified(self, lead_id: int, clinic_slug: str) -> bool:
+        """Ставит флаг «пациенту отправлено финальное подтверждение».
+        Возвращает True ТОЛЬКО при первом переходе 0→1 (идемпотентность рассылки)."""
+        cur = await self.conn.execute(
+            "UPDATE leads SET patient_notified = 1"
+            " WHERE id = ? AND clinic_slug = ? AND patient_notified = 0",
+            (lead_id, clinic_slug),
+        )
+        await self.conn.commit()
+        return cur.rowcount > 0
+
+    async def phone_seen_before(self, clinic_slug: str, phone: str, before_lead_id: int) -> bool:
+        """Был ли этот номер у клиники в более раннем лиде (пометка «повторный»)."""
+        if not phone:
+            return False
+        n = await self._scalar(
+            "SELECT COUNT(*) FROM leads WHERE clinic_slug = ? AND phone = ? AND id < ?",
+            (clinic_slug, phone, before_lead_id),
+        )
+        return n > 0
+
+    async def transcript(self, lead_id: int, clinic_slug: str) -> list[dict[str, Any]] | None:
+        """Полный диалог лида (тексты уже редактированы при записи). None — чужой лид."""
+        lead = await self.get_lead(lead_id, clinic_slug)
+        if lead is None:
+            return None
+        return await self.full_dialog(lead["session_id"])
 
     async def leads_by_source(self, days: int) -> list[dict[str, Any]]:
         rows = await self._fetchall(
@@ -343,6 +514,158 @@ class Database:
             (clinic_slug, f"{month}%"),
         )
 
+    # --- Деньги (возвращённые рубли) --------------------------------------
+
+    async def recovered_by_day(self, clinic_slug: str, days: int) -> list[dict[str, Any]]:
+        """Возвращённые ₽ по дням: сумма est_sum записанных лидов (confirmed|booked)."""
+        rows = await self._fetchall(
+            "SELECT substr(created_at, 1, 10) AS day,"
+            " COUNT(*) AS leads, COALESCE(SUM(COALESCE(est_sum, 0)), 0) AS rub"
+            " FROM leads WHERE clinic_slug = ? AND status IN ('confirmed', 'booked')"
+            " AND created_at >= datetime(?, ?)"
+            " GROUP BY day ORDER BY day",
+            (clinic_slug, _ts(), f"-{days} days"),
+        )
+        return [dict(r) for r in rows]
+
+    async def count_leads(self, clinic_slug: str, days: int, status: str | None = None) -> int:
+        sql = "SELECT COUNT(*) FROM leads WHERE clinic_slug = ? AND created_at >= datetime(?, ?)"
+        params: list[Any] = [clinic_slug, _ts(), f"-{days} days"]
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        return await self._scalar(sql, tuple(params))
+
+    async def count_booked(self, clinic_slug: str, days: int) -> int:
+        return await self._scalar(
+            "SELECT COUNT(*) FROM leads WHERE clinic_slug = ?"
+            " AND status IN ('confirmed', 'booked') AND created_at >= datetime(?, ?)",
+            (clinic_slug, _ts(), f"-{days} days"),
+        )
+
+    async def recovered_total(self, clinic_slug: str, days: int) -> int:
+        return await self._scalar(
+            "SELECT COALESCE(SUM(COALESCE(est_sum, 0)), 0) FROM leads"
+            " WHERE clinic_slug = ? AND status IN ('confirmed', 'booked')"
+            " AND created_at >= datetime(?, ?)",
+            (clinic_slug, _ts(), f"-{days} days"),
+        )
+
+    # --- Доставка и надёжность (reliability streak) -----------------------
+
+    async def record_delivery(
+        self, clinic_slug: str, ref: str, channel: str, success: bool
+    ) -> None:
+        await self.conn.execute(
+            "INSERT INTO delivery_attempts (clinic_slug, ref, channel, success, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (clinic_slug, ref, channel, int(success), _ts()),
+        )
+        await self.conn.commit()
+
+    async def record_incident(
+        self, clinic_slug: str, ref: str, resolved_in_minutes: int | None = None
+    ) -> None:
+        await self.conn.execute(
+            "INSERT INTO incidents (clinic_slug, ref, occurred_at, resolved_in_minutes)"
+            " VALUES (?, ?, ?, ?)",
+            (clinic_slug, ref, _ts(), resolved_in_minutes),
+        )
+        await self.conn.commit()
+
+    async def last_incident(self, clinic_slug: str) -> dict[str, Any] | None:
+        row = await self._fetchone(
+            "SELECT occurred_at, resolved_in_minutes FROM incidents"
+            " WHERE clinic_slug = ? ORDER BY id DESC LIMIT 1",
+            (clinic_slug,),
+        )
+        return dict(row) if row else None
+
+    async def clinic_first_activity(self, clinic_slug: str) -> str | None:
+        return await self._scalar_val(
+            "SELECT MIN(created_at) FROM ("
+            " SELECT created_at FROM leads WHERE clinic_slug = ?"
+            " UNION ALL SELECT created_at FROM missed_calls WHERE clinic_slug = ?)",
+            (clinic_slug, clinic_slug),
+        )
+
+    # --- Magic-link токены -------------------------------------------------
+
+    async def create_magic_token(
+        self, token: str, clinic_slug: str, tg_user_id: int | None, expires_at: str
+    ) -> None:
+        await self.conn.execute(
+            "INSERT INTO magic_tokens (token, clinic_slug, tg_user_id, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (token, clinic_slug, tg_user_id, _ts(), expires_at),
+        )
+        await self.conn.commit()
+
+    async def consume_magic_token(self, token: str, now: str) -> str | None:
+        """Одноразовое гашение: возвращает clinic_slug, если токен валиден,
+        не использован и не истёк; иначе None. Гонку двух кликов отсекает
+        UPDATE ... WHERE used_at IS NULL (атомарно)."""
+        cur = await self.conn.execute(
+            "UPDATE magic_tokens SET used_at = ?"
+            " WHERE token = ? AND used_at IS NULL AND expires_at >= ?",
+            (now, token, now),
+        )
+        await self.conn.commit()
+        if cur.rowcount == 0:
+            return None
+        row = await self._fetchone(
+            "SELECT clinic_slug FROM magic_tokens WHERE token = ?", (token,)
+        )
+        return row["clinic_slug"] if row else None
+
+    # --- Лимиты: автосообщения на номер и суточный SMS --------------------
+
+    async def try_reserve_auto_message(self, clinic_slug: str, phone: str, date: str) -> bool:
+        """True — можно слать (первое автосообщение номеру за сутки), уже зарезервировано.
+        False — сегодня номеру уже слали (дневной лимит 1/24ч)."""
+        try:
+            await self.conn.execute(
+                "INSERT INTO auto_messages (clinic_slug, phone, date) VALUES (?, ?, ?)",
+                (clinic_slug, phone, date),
+            )
+            await self.conn.commit()
+            return True
+        except aiosqlite.IntegrityError:
+            return False
+
+    async def sms_count_today(self, clinic_slug: str, date: str) -> int:
+        return await self._scalar(
+            "SELECT COALESCE(count, 0) FROM sms_counters WHERE clinic_slug = ? AND date = ?",
+            (clinic_slug, date),
+        )
+
+    async def incr_sms_count(self, clinic_slug: str, date: str) -> int:
+        await self.conn.execute(
+            "INSERT INTO sms_counters (clinic_slug, date, count) VALUES (?, ?, 1)"
+            " ON CONFLICT(clinic_slug, date) DO UPDATE SET count = count + 1",
+            (clinic_slug, date),
+        )
+        await self.conn.commit()
+        return await self.sms_count_today(clinic_slug, date)
+
+    # --- Настройки клиники (мутабельные, из кабинета) ---------------------
+
+    async def get_clinic_settings(self, clinic_slug: str) -> dict[str, Any]:
+        row = await self._fetchone(
+            "SELECT data_json FROM clinic_settings WHERE clinic_slug = ?", (clinic_slug,)
+        )
+        return json.loads(row["data_json"]) if row else {}
+
+    async def set_clinic_settings(self, clinic_slug: str, data: dict[str, Any]) -> None:
+        await self.conn.execute(
+            "INSERT INTO clinic_settings (clinic_slug, data_json, updated_at)"
+            " VALUES (?, ?, ?)"
+            " ON CONFLICT(clinic_slug) DO UPDATE SET data_json = excluded.data_json,"
+            " updated_at = excluded.updated_at",
+            (clinic_slug, json.dumps(data, ensure_ascii=False), _ts()),
+        )
+        await self.conn.commit()
+
     # --- Внутреннее -------------------------------------------------------
 
     async def _fetchone(self, sql: str, params: tuple = ()) -> aiosqlite.Row | None:
@@ -357,3 +680,9 @@ class Database:
         async with self.conn.execute(sql, params) as cur:
             row = await cur.fetchone()
             return row[0] if row else 0
+
+    async def _scalar_val(self, sql: str, params: tuple = ()) -> Any:
+        """Как _scalar, но возвращает сырое значение (может быть None/строкой)."""
+        async with self.conn.execute(sql, params) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else None

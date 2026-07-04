@@ -44,6 +44,9 @@ class Clinic(BaseModel):
     services: list[Service] = Field(default_factory=list)
     sms_sender: str | None = None
     novofon_number: str | None = None
+    # Персональный токен вебхука телефонии (в URL): резолвит клинику без опоры
+    # только на набранный номер. Если задан — предпочтительный способ авторизации.
+    clinic_token: str | None = None
 
     @field_validator("slug")
     @classmethod
@@ -160,12 +163,20 @@ class Settings(BaseModel):
     db_path: str = "data/podkhvat.db"
     log_level: str = "INFO"
 
+    # Кабинет: секрет для подписи JWT-сессий (длинная случайная строка на деплое)
+    jwt_secret: str = "dev-insecure-change-me"
+
     # Лимиты диалога
     max_messages_per_session: int = 30
     max_response_tokens: int = 800
     history_window: int = 12
     flood_max_messages: int = 5
     flood_window_seconds: int = 10
+
+    # Защитные лимиты (безопасность/баланс)
+    sms_daily_cap_per_clinic: int = 200     # потолок исходящих SMS на клинику в сутки
+    webhook_max_per_number: int = 5         # вебхуков с одного номера за окно
+    webhook_window_seconds: int = 60
 
 
 def load_settings() -> Settings:
@@ -186,6 +197,8 @@ def load_settings() -> Settings:
         public_base_url=_env("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/"),
         db_path=_env("DB_PATH", "data/podkhvat.db"),
         log_level=_env("LOG_LEVEL", "INFO"),
+        jwt_secret=_env("JWT_SECRET", "dev-insecure-change-me"),
+        sms_daily_cap_per_clinic=int(_env("SMS_DAILY_CAP_PER_CLINIC", "200")),
     )
 
 
@@ -213,3 +226,18 @@ def clinic_by_novofon_number(clinics: dict[str, Clinic], number: str) -> Clinic 
         if clinic.novofon_number and re.sub(r"\D", "", clinic.novofon_number) == digits:
             return clinic
     return None
+
+
+def clinic_by_token(clinics: dict[str, Clinic], token: str) -> Clinic | None:
+    if not token:
+        return None
+    for clinic in clinics.values():
+        if clinic.clinic_token and hmac_equal(clinic.clinic_token, token):
+            return clinic
+    return None
+
+
+def hmac_equal(a: str, b: str) -> bool:
+    import hmac as _hmac
+
+    return _hmac.compare_digest(a, b)
