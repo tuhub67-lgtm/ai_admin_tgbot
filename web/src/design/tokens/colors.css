@@ -1,0 +1,94 @@
+/* Подхват AI+ — цвет. База: логотип (винный #6F0D1E, золото #E7C258, слоновая кость #FCF2DC, уголь #1C1A17) */
+:root, [data-theme="light"] {
+  /* Винный (база логотипа = 800) */
+  --wine-50:#FBEEF0; --wine-100:#F6DBDF; --wine-200:#EBB6BE; --wine-300:#DA8793;
+  --wine-400:#C35A6C; --wine-500:#A73A4F; --wine-600:#8E2439; --wine-700:#7D162B;
+  --wine-800:#6F0D1E; --wine-900:#520916; --wine-950:#3B040E;
+  /* Золото (база логотипа = 400) */
+  --gold-50:#FDF8EA; --gold-100:#FAEFC9; --gold-200:#F4E09A; --gold-300:#EDD173;
+  --gold-400:#E7C258; --gold-500:#D3A73A; --gold-600:#BC8F28; --gold-700:#A67C1F;
+  --gold-800:#8A6410; --gold-900:#5F450C;
+  /* Тёплые нейтральные */
+  --neutral-0:#FFFFFF; --neutral-50:#FAF6ED; --neutral-100:#F1EBDD; --neutral-200:#E3DCC9;
+  --neutral-300:#CDC4AE; --neutral-400:#A89F8A; --neutral-500:#837A67; --neutral-600:#645D4D;
+  --neutral-700:#4A4438; --neutral-800:#2F2B24; --neutral-900:#1C1A17; --neutral-950:#121009;
+  --ivory:#FCF2DC; --charcoal:#1C1A17;
+
+  /* ===== Светлая тема (по умолчанию) ===== */
+  --bg:var(--ivory);
+  --surface:#FFFFFF;
+  --surface-subtle:var(--neutral-50);
+  --surface-brand:var(--wine-800);
+  --surface-brand-hover:var(--wine-900);
+  --text:#1C1A17;
+  --text-secondary:#5C554A;
+  --text-disabled:var(--neutral-400);
+  --text-on-brand:var(--ivory);
+  --text-gold:#8A6410;          /* обычный кегль, 4.8:1 */
+  --text-gold-large:#A67C1F;    /* только ≥24px, 3.4:1 */
+  --border:var(--neutral-200);
+  --border-strong:var(--neutral-300);
+  --focus-ring:var(--gold-700);
+  --cta-surface:var(--gold-400);
+  --cta-surface-hover:var(--gold-500);
+  --cta-text:#1C1A17;
+
+  /* Семантика */
+  --urgent:#D9481F; --urgent-text:#B33413; --urgent-tint:#FBE7DE;
+  --success:#2E7D4F; --success-text:#256647; --success-tint:#E3F0E7;
+  --info:#3D6B8F; --info-text:#33597A; --info-tint:#E4EDF4;
+
+  /* Статусы лида (цвет + форма; форма задаётся компонентом) */
+  --st-new-text:#8A6410;    --st-new-tint:#FAEFC9;
+  --st-dialog-text:#33597A; --st-dialog-tint:#E4EDF4;
+  --st-booked-text:#256647; --st-booked-tint:#E3F0E7;
+  --st-urgent-text:#B33413; --st-urgent-tint:#FBE7DE;
+  --st-lost-text:#645D4D;   --st-lost-tint:#EFEAE0;
+
+  --control-on:var(--wine-800);      /* включённый тумблер/чекбокс */
+  --control-on-knob:#FFFFFF;
+
+  --shadow-card:0 1px 2px rgba(28,26,23,.05), 0 3px 10px rgba(28,26,23,.07);
+  --shadow-raised:0 4px 8px rgba(28,26,23,.08), 0 12px 28px rgba(28,26,23,.10);
+  --shadow-urgent:0 2px 6px rgba(179,52,19,.18), 0 8px 20px rgba(179,52,19,.12);
+  --scrim:rgba(28,26,23,.5);
+}
+
+/* ===== Тёмная тема: уголь + винные и золотые акценты ===== */
+[data-theme="dark"] {
+  --bg:#1C1A17;
+  --surface:#26231E;
+  --surface-subtle:#2F2B24;
+  --surface-brand:var(--wine-900);
+  --surface-brand-hover:var(--wine-950);
+  --text:#F7F0E1;
+  --text-secondary:#CBC2AC;
+  --text-disabled:var(--neutral-600);
+  --text-on-brand:var(--ivory);
+  --text-gold:var(--gold-400);
+  --text-gold-large:var(--gold-400);
+  --border:#3A352C;
+  --border-strong:#4A4438;
+  --focus-ring:var(--gold-400);
+  --cta-surface:var(--gold-400);
+  --cta-surface-hover:var(--gold-300);
+  --cta-text:#1C1A17;
+
+  --urgent:#E8663F; --urgent-text:#E8663F; --urgent-tint:#3A1D12;
+  --success:#6FBF8F; --success-text:#6FBF8F; --success-tint:#1B2E23;
+  --info:#7FA8C9; --info-text:#7FA8C9; --info-tint:#1B2733;
+
+  --st-new-text:var(--gold-400); --st-new-tint:#33290F;
+  --st-dialog-text:#7FA8C9;      --st-dialog-tint:#1B2733;
+  --st-booked-text:#6FBF8F;      --st-booked-tint:#1B2E23;
+  --st-urgent-text:#E8663F;      --st-urgent-tint:#3A1D12;
+  --st-lost-text:#A89F8A;        --st-lost-tint:#2F2B24;
+
+  --control-on:var(--gold-400);
+  --control-on-knob:#1C1A17;
+
+  --shadow-card:0 1px 2px rgba(0,0,0,.4), 0 6px 16px rgba(0,0,0,.35);
+  --shadow-raised:0 4px 10px rgba(0,0,0,.45), 0 14px 32px rgba(0,0,0,.4);
+  --shadow-urgent:0 2px 6px rgba(232,102,63,.25), 0 8px 20px rgba(232,102,63,.15);
+  --scrim:rgba(0,0,0,.6);
+}

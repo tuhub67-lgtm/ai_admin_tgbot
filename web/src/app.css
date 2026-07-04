@@ -1,0 +1,98 @@
+/* Подхват AI+ — глобальные стили витрины/кабинета поверх токенов дизайн-пака.
+   Только раскладка и доступность. Цвета/шрифты/радиусы — из токенов (var(--...)). */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+body { margin: 0; min-height: 100vh; overflow-x: hidden; }
+#root { min-height: 100vh; display: flex; flex-direction: column; }
+
+a { color: inherit; }
+img, svg { max-width: 100%; }
+button { font-family: inherit; }
+
+/* Якорная навигация не должна прятать заголовки под липкую шапку */
+:where(section, div)[id] { scroll-margin-top: 84px; }
+
+/* ── Контейнер контента ── */
+.container { width: 100%; max-width: 1160px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+@media (max-width: 640px) { .container { padding-left: 16px; padding-right: 16px; } }
+
+/* Вертикальный ритм секций */
+.section { padding: 88px 0; }
+@media (max-width: 640px) { .section { padding: 56px 0; } }
+
+/* ── Scroll-reveal: контент виден ВСЕГДА; анимация — прогрессивное улучшение ──
+   Начальное «спрятанное» состояние применяется ТОЛЬКО когда JS активен (html.js-anim)
+   и пользователь не просил reduce-motion. Без JS/при reduce-motion контент видим сразу.
+   Reveal реализован на IntersectionObserver (Firefox-safe), а не на CSS scroll-timeline. */
+.reveal { opacity: 1; }
+html.js-anim .reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 560ms cubic-bezier(.16, 1, .3, 1), transform 560ms cubic-bezier(.16, 1, .3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+html.js-anim .reveal.is-visible { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  html.js-anim .reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+/* Визуально скрыть, оставив для скринридеров */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* Мягкое «золотое» свечение вспышки count-up (класс вешает JS на 1 кадр) */
+@keyframes pk-ding {
+  0% { filter: brightness(1); }
+  35% { filter: brightness(1.35); }
+  100% { filter: brightness(1); }
+}
+.pk-ding { animation: pk-ding 620ms cubic-bezier(.2, 0, .2, 1) 1; }
+@media (prefers-reduced-motion: reduce) { .pk-ding { animation: none; } }
+
+/* ── Слайдер калькулятора: винный accent, крупная зона ── */
+.pk-range {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 6px; border-radius: 999px; margin: 8px 0;
+  background: var(--border-strong); accent-color: var(--control-on);
+  cursor: pointer; outline-offset: 4px;
+}
+.pk-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--control-on); border: 3px solid var(--surface);
+  box-shadow: var(--shadow-card); cursor: pointer;
+}
+.pk-range::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--control-on); border: 3px solid var(--surface);
+  box-shadow: var(--shadow-card); cursor: pointer;
+}
+.pk-range::-moz-range-track { height: 6px; border-radius: 999px; background: var(--border-strong); }
+
+/* ── Адаптив: две колонки → одна ── */
+@media (max-width: 940px) {
+  .pk-hero-grid, .pk-calc-grid, .pk-dialog-grid, .pk-lead-grid, .pk-price-grid, .pk-trust-grid, .pk-footer-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .pk-hero-grid { gap: 36px !important; padding-top: 40px !important; padding-bottom: 56px !important; }
+  .pk-steps { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 720px) {
+  .pk-hide-mobile { display: none !important; }
+}
+@media (min-width: 721px) and (max-width: 940px) {
+  /* На планшете шаги и trust — по 2 в ряд, но без перегруза */
+  .pk-trust-grid { grid-template-columns: 1fr 1fr !important; }
+}

@@ -1,0 +1,23 @@
+/* Подхват AI+ — сетка 4pt, радиусы, фацет, толщины линий */
+:root {
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px;
+  --sp-8:32px; --sp-10:40px; --sp-12:48px; --sp-16:64px; --sp-20:80px;
+
+  --r-card:16px; --r-card-sm:12px; --r-btn:10px; --r-input:10px; --r-badge:8px; --r-pill:999px;
+
+  /* Фацетный скос — грань медвежьей морды. Один срезанный угол, обычно правый верхний */
+  --facet-badge:8px; --facet-marker:12px; --facet-card:16px; --facet-hero:32px;
+
+  /* Две толщины линии — из логотипа */
+  --line-hair:1px; --line-control:1.5px; --line-icon:2px; --line-accent:4px;
+
+  --hit-min:44px; /* минимальная зона нажатия */
+}
+
+/* Утилиты фацета: скос правого верхнего угла */
+.facet-badge{clip-path:polygon(0 0,calc(100% - var(--facet-badge)) 0,100% var(--facet-badge),100% 100%,0 100%)}
+.facet-marker{clip-path:polygon(0 0,calc(100% - var(--facet-marker)) 0,100% var(--facet-marker),100% 100%,0 100%)}
+.facet-card{clip-path:polygon(0 0,calc(100% - var(--facet-card)) 0,100% var(--facet-card),100% 100%,0 100%)}
+.facet-hero{clip-path:polygon(0 0,calc(100% - var(--facet-hero)) 0,100% var(--facet-hero),100% 100%,0 100%)}
+/* Зеркальный (левый нижний) — для подложек */
+.facet-hero-bl{clip-path:polygon(0 0,100% 0,100% 100%,var(--facet-hero) 100%,0 calc(100% - var(--facet-hero)))}

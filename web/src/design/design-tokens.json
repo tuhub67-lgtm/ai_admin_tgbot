@@ -1,0 +1,242 @@
+{
+  "$meta": {
+    "name": "Подхват AI+",
+    "version": "1.0.0",
+    "description": "Дизайн-токены системы «Подхват AI+» — ИИ-администратор для частных стоматологий. ДНК: фацетная геометрия логотипа-медведя, две толщины линии, спокойная сила. Мотивы владельца: Покой и Прибыль.",
+    "themes": ["light", "dark"],
+    "a11y": { "minFontPx": 16, "minHitAreaPx": 44, "minContrastText": 4.5, "minContrastLargeText": 3.0 }
+  },
+
+  "color": {
+    "wine": {
+      "50":  "#FBEEF0",
+      "100": "#F6DBDF",
+      "200": "#EBB6BE",
+      "300": "#DA8793",
+      "400": "#C35A6C",
+      "500": "#A73A4F",
+      "600": "#8E2439",
+      "700": "#7D162B",
+      "800": "#6F0D1E",
+      "900": "#520916",
+      "950": "#3B040E",
+      "$note": "База логотипа = 800. 50–200 только фоны-тинты; 300–400 акценты в тёмной теме; 900–950 hover/pressed."
+    },
+    "gold": {
+      "50":  "#FDF8EA",
+      "100": "#FAEFC9",
+      "200": "#F4E09A",
+      "300": "#EDD173",
+      "400": "#E7C258",
+      "500": "#D3A73A",
+      "600": "#BC8F28",
+      "700": "#A67C1F",
+      "800": "#8A6410",
+      "900": "#5F450C",
+      "$note": "База логотипа = 400 (поверхности CTA, подсветка «возвращено»). Текст золотом на светлом: 700 только ≥24px (3.4:1), 800 для обычного кегля (4.8:1). Доля золота на экране ≤8%."
+    },
+    "neutral": {
+      "0":   "#FFFFFF",
+      "50":  "#FAF6ED",
+      "100": "#F1EBDD",
+      "200": "#E3DCC9",
+      "300": "#CDC4AE",
+      "400": "#A89F8A",
+      "500": "#837A67",
+      "600": "#645D4D",
+      "700": "#4A4438",
+      "800": "#2F2B24",
+      "900": "#1C1A17",
+      "950": "#121009",
+      "$note": "Тёплые нейтральные (в тоне слоновой кости). 900 = «уголь», основной текст и фон тёмной темы."
+    },
+    "ivory": "#FCF2DC",
+    "charcoal": "#1C1A17",
+
+    "semantic": {
+      "urgent": {
+        "base": "#D9481F", "textOnLight": "#B33413", "tintLight": "#FBE7DE",
+        "baseDark": "#E8663F", "tintDark": "#3A1D12",
+        "$note": "Тревожный оранжево-красный «острая боль / срочно». НЕ путать с брендовым винным: винный — спокойствие бренда, этот — сигнал."
+      },
+      "success": {
+        "base": "#2E7D4F", "textOnLight": "#256647", "tintLight": "#E3F0E7",
+        "baseDark": "#6FBF8F", "tintDark": "#1B2E23",
+        "$note": "Сдержанный зелёный: «записан», «окупился»."
+      },
+      "info": {
+        "base": "#3D6B8F", "textOnLight": "#33597A", "tintLight": "#E4EDF4",
+        "baseDark": "#7FA8C9", "tintDark": "#1B2733",
+        "$note": "Приглушённый стальной синий: «в диалоге», нейтральные уведомления."
+      }
+    },
+
+    "status": {
+      "$note": "Статусы лида. Каждому — цвет И форма маркера (различимо без цвета).",
+      "new":    { "shape": "ромб ◆",             "textOnLight": "#8A6410", "tintLight": "#FAEFC9", "textOnDark": "#E7C258", "tintDark": "#33290F", "label": "Новый" },
+      "dialog": { "shape": "три квадратных точки", "textOnLight": "#33597A", "tintLight": "#E4EDF4", "textOnDark": "#7FA8C9", "tintDark": "#1B2733", "label": "В диалоге" },
+      "booked": { "shape": "галочка ✓",           "textOnLight": "#256647", "tintLight": "#E3F0E7", "textOnDark": "#6FBF8F", "tintDark": "#1B2E23", "label": "Записан" },
+      "urgent": { "shape": "фацетный маркер (срезанный угол)", "textOnLight": "#B33413", "tintLight": "#FBE7DE", "textOnDark": "#E8663F", "tintDark": "#3A1D12", "label": "Срочно" },
+      "lost":   { "shape": "крест ×",             "textOnLight": "#645D4D", "tintLight": "#EFEAE0", "textOnDark": "#A89F8A", "tintDark": "#2F2B24", "label": "Потерян" }
+    },
+
+    "theme": {
+      "light": {
+        "bg": "#FCF2DC",
+        "surface": "#FFFFFF",
+        "surfaceSubtle": "#FAF6ED",
+        "surfaceBrand": "#6F0D1E",
+        "text": "#1C1A17",
+        "textSecondary": "#5C554A",
+        "textDisabled": "#A89F8A",
+        "textOnBrand": "#FCF2DC",
+        "textGold": "#8A6410",
+        "textGoldLarge": "#A67C1F",
+        "border": "#E3DCC9",
+        "borderStrong": "#CDC4AE",
+        "focusRing": "#A67C1F",
+        "ctaSurface": "#E7C258",
+        "ctaText": "#1C1A17"
+      },
+      "dark": {
+        "bg": "#1C1A17",
+        "surface": "#26231E",
+        "surfaceSubtle": "#2F2B24",
+        "surfaceBrand": "#520916",
+        "text": "#F7F0E1",
+        "textSecondary": "#CBC2AC",
+        "textDisabled": "#645D4D",
+        "textOnBrand": "#FCF2DC",
+        "textGold": "#E7C258",
+        "textGoldLarge": "#E7C258",
+        "border": "#3A352C",
+        "borderStrong": "#4A4438",
+        "focusRing": "#E7C258",
+        "ctaSurface": "#E7C258",
+        "ctaText": "#1C1A17"
+      }
+    },
+
+    "contrastPairs": {
+      "$note": "Проверенные пары «текст/фон», WCAG-коэффициенты. Всё ≥4.5:1, кроме отмеченных large-only (≥3:1, кегль ≥24px).",
+      "light": [
+        { "fg": "#1C1A17", "bg": "#FCF2DC", "ratio": 15.6 },
+        { "fg": "#1C1A17", "bg": "#FFFFFF", "ratio": 17.4 },
+        { "fg": "#5C554A", "bg": "#FCF2DC", "ratio": 6.6 },
+        { "fg": "#6F0D1E", "bg": "#FCF2DC", "ratio": 10.7 },
+        { "fg": "#6F0D1E", "bg": "#FFFFFF", "ratio": 12.0 },
+        { "fg": "#8A6410", "bg": "#FCF2DC", "ratio": 4.8 },
+        { "fg": "#A67C1F", "bg": "#FCF2DC", "ratio": 3.4, "largeOnly": true },
+        { "fg": "#B33413", "bg": "#FCF2DC", "ratio": 5.4 },
+        { "fg": "#256647", "bg": "#FCF2DC", "ratio": 6.1 },
+        { "fg": "#33597A", "bg": "#FCF2DC", "ratio": 5.1 },
+        { "fg": "#FCF2DC", "bg": "#6F0D1E", "ratio": 10.7 },
+        { "fg": "#FFFFFF", "bg": "#6F0D1E", "ratio": 12.0 },
+        { "fg": "#1C1A17", "bg": "#E7C258", "ratio": 10.1 }
+      ],
+      "dark": [
+        { "fg": "#F7F0E1", "bg": "#1C1A17", "ratio": 15.3 },
+        { "fg": "#CBC2AC", "bg": "#1C1A17", "ratio": 9.5 },
+        { "fg": "#E7C258", "bg": "#1C1A17", "ratio": 10.1 },
+        { "fg": "#DA8793", "bg": "#1C1A17", "ratio": 6.5 },
+        { "fg": "#E8663F", "bg": "#1C1A17", "ratio": 5.3 },
+        { "fg": "#6FBF8F", "bg": "#1C1A17", "ratio": 7.8 },
+        { "fg": "#7FA8C9", "bg": "#1C1A17", "ratio": 7.0 },
+        { "fg": "#FCF2DC", "bg": "#520916", "ratio": 9.9 },
+        { "fg": "#1C1A17", "bg": "#E7C258", "ratio": 10.1 }
+      ]
+    },
+
+    "usageBudget": {
+      "wineMaxShare": 0.20,
+      "goldMaxShare": 0.08,
+      "$note": "«Дорого = сдержанно»: винный ≤20% поверхности экрана, золото ≤8% (только акценты). Остальное — нейтральные."
+    }
+  },
+
+  "typography": {
+    "family": {
+      "display": "'Golos Text', 'Helvetica Neue', Arial, sans-serif",
+      "body": "'Inter', 'Helvetica Neue', Arial, sans-serif",
+      "$note": "Golos Text — кириллический гротеск российской школы: крепкий, с гранёным характером терминалей, родня фацетам логотипа. Заголовки и все цифры. Inter — рабочая лошадка мелких кеглей: высокая x-высота, табличные цифры, безупречная кириллица на экране."
+    },
+    "weight": { "regular": 400, "medium": 500, "semibold": 600, "bold": 700, "black": 800 },
+    "features": { "money": "'tnum' 1, 'lnum' 1", "$note": "Денежные и табличные цифры — всегда tnum: столбцы не пляшут." },
+    "scale": {
+      "money-xl":  { "family": "display", "sizePx": 72, "lineHeight": 1.05, "weight": 700, "tracking": "-0.02em", "tnum": true, "$use": "Главная цифра экрана «Деньги». Мобильный: 56px." },
+      "money-lg":  { "family": "display", "sizePx": 44, "lineHeight": 1.1,  "weight": 700, "tracking": "-0.01em", "tnum": true, "$use": "Сумма в hero, итог отчёта." },
+      "money-md":  { "family": "display", "sizePx": 28, "lineHeight": 1.15, "weight": 700, "tracking": "0",       "tnum": true, "$use": "Сумма в карточке лида, строке таблицы." },
+      "h1":        { "family": "display", "sizePx": 40, "lineHeight": 1.15, "weight": 700, "tracking": "-0.01em" },
+      "h2":        { "family": "display", "sizePx": 30, "lineHeight": 1.2,  "weight": 700 },
+      "h3":        { "family": "display", "sizePx": 24, "lineHeight": 1.25, "weight": 600 },
+      "h4":        { "family": "display", "sizePx": 20, "lineHeight": 1.3,  "weight": 600 },
+      "body-lg":   { "family": "body",    "sizePx": 18, "lineHeight": 1.5,  "weight": 400 },
+      "body":      { "family": "body",    "sizePx": 16, "lineHeight": 1.5,  "weight": 400, "$use": "Минимальный кегль интерфейса. Меньше — нельзя: аудитория 45+." },
+      "body-med":  { "family": "body",    "sizePx": 16, "lineHeight": 1.5,  "weight": 500 },
+      "caption":   { "family": "body",    "sizePx": 16, "lineHeight": 1.4,  "weight": 400, "$use": "Вторичный текст — тем же кеглем, отличается цветом (textSecondary), не размером." },
+      "overline":  { "family": "body",    "sizePx": 16, "lineHeight": 1.3,  "weight": 600, "tracking": "0.06em", "transform": "uppercase" },
+      "print-min": { "family": "body",    "sizePx": 12, "unit": "pt", "$use": "Минимум для печатных отчётов PDF." }
+    }
+  },
+
+  "spacing": {
+    "unit": 4,
+    "scale": { "1": 4, "2": 8, "3": 12, "4": 16, "5": 20, "6": 24, "8": 32, "10": 40, "12": 48, "16": 64, "20": 80 },
+    "$note": "Сетка 4pt. Внутренние отступы карточек 16–20, между карточками 12, поля экрана 16 (моб.) / 24+ (десктоп)."
+  },
+
+  "radius": {
+    "card": 16,
+    "cardSmall": 12,
+    "button": 10,
+    "input": 10,
+    "badge": 8,
+    "pill": 999,
+    "$note": "Скругления спокойные, без «пилюль» на карточках."
+  },
+
+  "facet": {
+    "badge": 8,
+    "marker": 12,
+    "card": 16,
+    "hero": 32,
+    "clipPath": "polygon(0 0, calc(100% - VAR) 0, 100% VAR, 100% 100%, 0 100%)",
+    "$note": "Фирменный приём: фацетный скос — один срезанный угол (как грань медвежьей морды), обычно правый верхний. Применять на акцентах: бейдж «СРОЧНО», маркер записи, углы hero-блоков, шапка PDF. Не более одного фацетного элемента в поле зрения."
+  },
+
+  "border": {
+    "hairline": 1,
+    "control": 1.5,
+    "iconStroke": 2,
+    "accentBar": 4,
+    "$note": "Две толщины линии — из логотипа: тонкая (1–1.5) для структуры, толстая (2–4) для акцента."
+  },
+
+  "shadow": {
+    "card":     "0 1px 2px rgba(28,26,23,.05), 0 3px 10px rgba(28,26,23,.07)",
+    "raised":   "0 4px 8px rgba(28,26,23,.08), 0 12px 28px rgba(28,26,23,.10)",
+    "urgent":   "0 2px 6px rgba(179,52,19,.18), 0 8px 20px rgba(179,52,19,.12)",
+    "cardDark": "0 1px 2px rgba(0,0,0,.4), 0 6px 16px rgba(0,0,0,.35)"
+  },
+
+  "motion": {
+    "fast": "120ms cubic-bezier(.2,0,.2,1)",
+    "base": "200ms cubic-bezier(.2,0,.2,1)",
+    "enter": "280ms cubic-bezier(.16,1,.3,1)",
+    "$note": "Движение сдержанное: fade + сдвиг 4–8px. Без пружин и подпрыгиваний. Цифры денег могут «набегать» счётчиком 600ms."
+  },
+
+  "iconography": {
+    "grid": 24,
+    "stroke": 2,
+    "cap": "square",
+    "join": "miter",
+    "$note": "Линейные, 2px, гранёные углы (miter, срезы 45°) — стиль логотипа. Набор: call, call-missed, patient, booking, ruble, report, settings, max, telegram, sms, shield, clock, urgent, check, dialog, return, bell, search."
+  },
+
+  "ornament": {
+    "opacityMin": 0.04,
+    "opacityMax": 0.06,
+    "$note": "Тонкий солярный орнамент линией — ТОЛЬКО пустые состояния и обложки (отчёт, соцсети). Никогда — за текстом данных."
+  }
+}

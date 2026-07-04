@@ -1,0 +1,25 @@
+{
+  "name": "podhvat-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Подхват AI+ — витрина и кабинет (React + Vite). Кабинет на роуте /app.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "dependencies": {
+    "@fontsource/golos-text": "5.2.8",
+    "@fontsource/inter": "5.2.8",
+    "motion": "^11.15.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}
